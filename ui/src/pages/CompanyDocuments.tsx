@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Folder, Plus, Save, Trash2 } from "lucide-react";
+import { FilePlus, FileText, Folder, FolderPlus, Plus, Save, Trash2 } from "lucide-react";
 import type { CompanyDocumentEntry, CompanyDocumentEntrySummary, CompanyDocumentFolder } from "@paperclipai/shared";
 import { companyDocumentsApi } from "../api/companyDocuments";
 import { useCompany } from "../context/CompanyContext";
@@ -20,6 +20,23 @@ function folderLabel(folder: CompanyDocumentFolder, foldersById: Map<string, Com
     parentId = parent.parentId;
   }
   return names.join(" / ");
+}
+
+function documentFileName(document: Pick<CompanyDocumentEntrySummary, "title">) {
+  const title = document.title?.trim() || "Untitled";
+  return title.toLowerCase().endsWith(".md") ? title : `${title}.md`;
+}
+
+function childFolders(parentId: string | null, folders: CompanyDocumentFolder[]) {
+  return folders
+    .filter((folder) => folder.parentId === parentId)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function childDocuments(parentId: string | null, documents: CompanyDocumentEntrySummary[]) {
+  return documents
+    .filter((document) => document.folderId === parentId)
+    .sort((left, right) => (left.title ?? "").localeCompare(right.title ?? ""));
 }
 
 export function CompanyDocuments() {
@@ -46,9 +63,11 @@ export function CompanyDocuments() {
     enabled: Boolean(selectedCompanyId && selectedId),
   });
 
+  const folders = libraryQuery.data?.folders ?? [];
+  const documents = libraryQuery.data?.documents ?? [];
   const foldersById = useMemo(() => {
-    return new Map((libraryQuery.data?.folders ?? []).map((folder) => [folder.id, folder]));
-  }, [libraryQuery.data?.folders]);
+    return new Map(folders.map((folder) => [folder.id, folder]));
+  }, [folders]);
   const showMutationError = (title: string, error: unknown) => {
     toast.pushToast({
       title,
@@ -57,7 +76,6 @@ export function CompanyDocuments() {
     });
   };
 
-  const documents = libraryQuery.data?.documents ?? [];
   const selectedDocument = documentQuery.data ?? null;
 
   const resetDraft = () => {
@@ -123,15 +141,14 @@ export function CompanyDocuments() {
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] gap-6">
-      <aside className="w-80 shrink-0 border-r border-border pr-4">
-        <div className="mb-4 flex items-center justify-between">
+      <aside className="flex w-80 shrink-0 flex-col border-r border-border pr-4">
+        <div className="mb-3 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">Documents</h1>
-            <p className="text-sm text-muted-foreground">Company goals, project notes, and saved outputs.</p>
+            <p className="text-xs text-muted-foreground">Company goals, notes, and saved outputs.</p>
           </div>
-          <Button size="sm" onClick={resetDraft}>
-            <Plus className="mr-2 h-4 w-4" />
-            New
+          <Button size="icon-sm" onClick={resetDraft} title="New document" aria-label="New document">
+            <FilePlus className="h-4 w-4" />
           </Button>
         </div>
 
@@ -144,42 +161,27 @@ export function CompanyDocuments() {
           />
           <Button
             variant="secondary"
-            size="sm"
+            size="icon-sm"
             disabled={!newFolderName.trim() || createFolder.isPending}
             onClick={() => createFolder.mutate()}
+            title="New folder"
+            aria-label="New folder"
           >
-            <Folder className="h-4 w-4" />
+            <FolderPlus className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="space-y-1">
-          {documents.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No documents yet.
-            </p>
-          ) : (
-            documents.map((document) => (
-              <button
-                key={document.id}
-                onClick={() => {
-                  setSelectedId(document.id);
-                  setDraftTitle("");
-                  setDraftBody("");
-                }}
-                className={`flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  selectedId === document.id ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                }`}
-              >
-                <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{document.title ?? "Untitled"}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {document.folderId ? folderLabel(foldersById.get(document.folderId)!, foldersById) : "Root"}
-                  </span>
-                </span>
-              </button>
-            ))
-          )}
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-muted/10 p-2">
+          <DocumentTree
+            folders={folders}
+            documents={documents}
+            selectedId={selectedId}
+            onSelect={(document) => {
+              setSelectedId(document.id);
+              setDraftTitle("");
+              setDraftBody("");
+            }}
+          />
         </div>
       </aside>
 
@@ -187,7 +189,6 @@ export function CompanyDocuments() {
         {selectedDocument ? (
           <DocumentEditor
             document={selectedDocument}
-            folders={libraryQuery.data?.folders ?? []}
             foldersById={foldersById}
             onSave={(title, body) => updateDocument.mutate({ document: selectedDocument, title, body })}
             onDelete={() => deleteDocument.mutate(selectedDocument)}
@@ -197,6 +198,10 @@ export function CompanyDocuments() {
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <section className="space-y-3">
+              <div className="flex items-center gap-2 border-b border-border pb-3">
+                <Plus className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">New markdown document</span>
+              </div>
               <input
                 value={draftTitle}
                 onChange={(event) => setDraftTitle(event.target.value)}
@@ -227,7 +232,13 @@ export function CompanyDocuments() {
               </Button>
             </section>
             <section className="min-w-0 rounded-md border border-border p-4">
-              <MarkdownBody className="text-sm" softBreaks={false}>{draftBody}</MarkdownBody>
+              {draftBody.trim() ? (
+                <MarkdownBody className="text-sm" softBreaks={false}>{draftBody}</MarkdownBody>
+              ) : (
+                <div className="flex min-h-[520px] items-center justify-center text-sm text-muted-foreground">
+                  Write markdown to preview the rendered document.
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -236,9 +247,99 @@ export function CompanyDocuments() {
   );
 }
 
+function DocumentTree({
+  folders,
+  documents,
+  selectedId,
+  onSelect,
+}: {
+  folders: CompanyDocumentFolder[];
+  documents: CompanyDocumentEntrySummary[];
+  selectedId: string | null;
+  onSelect: (document: CompanyDocumentEntrySummary) => void;
+}) {
+  return (
+    <div className="space-y-1 text-sm">
+      <TreeFolder
+        name="Root"
+        folderId={null}
+        folders={folders}
+        documents={documents}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        depth={0}
+      />
+    </div>
+  );
+}
+
+function TreeFolder({
+  name,
+  folderId,
+  folders,
+  documents,
+  selectedId,
+  onSelect,
+  depth,
+}: {
+  name: string;
+  folderId: string | null;
+  folders: CompanyDocumentFolder[];
+  documents: CompanyDocumentEntrySummary[];
+  selectedId: string | null;
+  onSelect: (document: CompanyDocumentEntrySummary) => void;
+  depth: number;
+}) {
+  const nestedFolders = childFolders(folderId, folders);
+  const nestedDocuments = childDocuments(folderId, documents);
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      >
+        <Folder className="h-4 w-4 shrink-0" />
+        <span className="truncate">{name}</span>
+      </div>
+      <div className="space-y-0.5">
+        {nestedFolders.map((folder) => (
+          <TreeFolder
+            key={folder.id}
+            name={folder.name}
+            folderId={folder.id}
+            folders={folders}
+            documents={documents}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            depth={depth + 1}
+          />
+        ))}
+        {nestedDocuments.map((document) => (
+          <button
+            key={document.id}
+            onClick={() => onSelect(document)}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors ${
+              selectedId === document.id ? "bg-accent text-accent-foreground" : "text-foreground/80 hover:bg-accent/50"
+            }`}
+            style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+          >
+            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{documentFileName(document)}</span>
+          </button>
+        ))}
+        {depth === 0 && nestedFolders.length === 0 && nestedDocuments.length === 0 ? (
+          <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+            No documents yet.
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function DocumentEditor({
   document,
-  folders,
   foldersById,
   onSave,
   onDelete,
@@ -246,7 +347,6 @@ function DocumentEditor({
   deleting,
 }: {
   document: CompanyDocumentEntry;
-  folders: CompanyDocumentFolder[];
   foldersById: Map<string, CompanyDocumentFolder>;
   onSave: (title: string, body: string) => void;
   onDelete: () => void;
@@ -256,9 +356,18 @@ function DocumentEditor({
   const [title, setTitle] = useState(document.title ?? "Untitled");
   const [body, setBody] = useState(document.body);
 
+  useEffect(() => {
+    setTitle(document.title ?? "Untitled");
+    setBody(document.body);
+  }, [document.id, document.body, document.title]);
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <section className="space-y-3">
+        <div className="flex items-center gap-2 border-b border-border pb-3 text-sm text-muted-foreground">
+          <FileText className="h-4 w-4" />
+          <span className="truncate">{documentFileName(document)}</span>
+        </div>
         <div className="flex gap-2">
           <input
             value={title}
@@ -274,7 +383,7 @@ function DocumentEditor({
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          {document.folderId ? folderLabel(foldersById.get(document.folderId)!, foldersById) : "Root"} · revision{" "}
+          {document.folderId ? folderLabel(foldersById.get(document.folderId)!, foldersById) : "Root"} / revision{" "}
           {document.latestRevisionNumber}
         </p>
         <textarea
@@ -286,11 +395,6 @@ function DocumentEditor({
       <section className="min-w-0 rounded-md border border-border p-4">
         <MarkdownBody className="text-sm" softBreaks={false}>{body}</MarkdownBody>
       </section>
-      <datalist id="document-folders">
-        {folders.map((folder) => (
-          <option key={folder.id} value={folderLabel(folder, foldersById)} />
-        ))}
-      </datalist>
     </div>
   );
 }
