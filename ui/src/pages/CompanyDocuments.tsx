@@ -134,8 +134,6 @@ export function CompanyDocuments() {
     onError: (error) => showMutationError("Document deletion failed", error),
   });
 
-  if (!selectedCompanyId) return <p className="text-sm text-muted-foreground">Select a company to view documents.</p>;
-
   return (
     <div className="flex min-h-[calc(100vh-4rem)] gap-6">
       <aside className="flex w-80 shrink-0 flex-col border-r border-border pr-4">
@@ -174,6 +172,7 @@ export function CompanyDocuments() {
             documents={documents}
             selectedId={selectedId}
             isLoading={libraryQuery.isLoading}
+            hasCompany={Boolean(selectedCompanyId)}
             onSelect={(document) => {
               setSelectedId(document.id);
               setDraftTitle("");
@@ -184,10 +183,13 @@ export function CompanyDocuments() {
       </aside>
 
       <main className="min-w-0 flex-1">
+        {!selectedCompanyId ? (
+          <p className="mb-4 text-sm text-muted-foreground">Select a company to view documents.</p>
+        ) : null}
         {libraryQuery.error ? (
           <p className="mb-4 text-sm text-destructive">{libraryQuery.error.message}</p>
         ) : null}
-        {selectedDocument ? (
+        {!selectedCompanyId ? null : selectedDocument ? (
           <DocumentEditor
             document={selectedDocument}
             foldersById={foldersById}
@@ -253,14 +255,20 @@ function DocumentTree({
   documents,
   selectedId,
   isLoading,
+  hasCompany,
   onSelect,
 }: {
   folders: CompanyDocumentFolder[];
   documents: CompanyDocumentEntrySummary[];
   selectedId: string | null;
   isLoading: boolean;
+  hasCompany: boolean;
   onSelect: (document: CompanyDocumentEntrySummary) => void;
 }) {
+  if (!hasCompany) {
+    return <div className="px-2 py-6 text-center text-xs text-muted-foreground">No company selected.</div>;
+  }
+
   if (isLoading) {
     return <div className="px-2 py-6 text-center text-xs text-muted-foreground">Loading documents...</div>;
   }
