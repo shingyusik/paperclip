@@ -36,10 +36,14 @@ function bootstrapRootEnv(rootDir: string, env: NodeJS.ProcessEnv) {
     if (typeof env[key] === "string" && env[key]!.trim().length > 0) continue;
 
     const value = rawValue.trim();
-    env[key] =
+    const parsedValue =
       (value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))
         ? value.slice(1, -1)
         : value.replace(/\s+#.*$/, "").trim();
+    env[key] =
+      key === "PAPERCLIP_HOME" && parsedValue && !path.isAbsolute(parsedValue)
+        ? path.resolve(rootDir, parsedValue)
+        : parsedValue;
   }
 }
 
@@ -227,6 +231,17 @@ if (existingRunner) {
 }
 
 const pnpmBin = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const pnpmExecPath =
+  process.platform === "win32" && process.env.npm_execpath?.endsWith(".cjs")
+    ? process.env.npm_execpath
+    : null;
+
+function pnpmSpawnCommand(args: string[]) {
+  return pnpmExecPath
+    ? { command: process.execPath, args: [pnpmExecPath, ...args] }
+    : { command: pnpmBin, args };
+}
+
 let previousSnapshot = collectWatchedSnapshot();
 let dirtyPaths = new Set<string>();
 let pendingMigrations: string[] = [];
@@ -417,11 +432,11 @@ async function runPnpm(args: string[], options: {
   cwd?: string;
 } = {}) {
   return await new Promise<{ code: number; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
-    const spawned = spawn(pnpmBin, args, {
+    const command = pnpmSpawnCommand(args);
+    const spawned = spawn(command.command, command.args, {
       stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
       env: options.env ?? process.env,
       cwd: options.cwd,
-      shell: process.platform === "win32",
     });
 
     const stdoutBuffer = createCapturedOutputBuffer();
@@ -454,7 +469,7 @@ async function runPnpm(args: string[], options: {
 
 async function getMigrationStatusPayload() {
   const status = await runPnpm(
-    ["--filter", "@paperclipai/db", "exec", "tsx", "src/migration-status.ts", "--json"],
+    ["--filter", "@paperclipai/db", "exec", "--", "tsx", "src/migration-status.ts", "--json"],
     { env },
   );
   if (status.code !== 0) {
@@ -489,6 +504,10 @@ async function refreshPendingMigrations() {
 }
 
 async function maybePreflightMigrations(options: { interactive?: boolean; autoApply?: boolean; exitOnDecline?: boolean } = {}) {
+  if (process.platform === "win32" && !env.DATABASE_URL?.trim()) {
+    return;
+  }
+
   const interactive = options.interactive ?? mode === "watch";
   const autoApply = options.autoApply ?? env.PAPERCLIP_MIGRATION_AUTO_APPLY === "true";
   const exitOnDecline = options.exitOnDecline ?? mode === "watch";
@@ -627,10 +646,11 @@ async function startServerChild() {
   await buildPluginSdk();
 
   const serverScript = mode === "watch" ? "dev:watch" : "dev";
+  const command = pnpmSpawnCommand(["--filter", "@paperclipai/server", serverScript, ...forwardedArgs]);
   child = spawn(
-    pnpmBin,
-    ["--filter", "@paperclipai/server", serverScript, ...forwardedArgs],
-    { stdio: "inherit", env, shell: process.platform === "win32" },
+    command.command,
+    command.args,
+    { stdio: "inherit", env },
   );
 
   childExitPromise = new Promise((resolve, reject) => {

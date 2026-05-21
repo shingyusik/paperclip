@@ -1,6 +1,29 @@
 import { applyPendingMigrations, inspectMigrations } from "./client.js";
 import { resolveMigrationConnection } from "./migration-runtime.js";
 
+async function stopWithTimeout(stop: () => Promise<void>): Promise<void> {
+  let timeout: NodeJS.Timeout | undefined;
+  let timedOut = false;
+
+  try {
+    await Promise.race([
+      stop(),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, 5_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+
+  if (timedOut) {
+    console.warn("Timed out while stopping embedded PostgreSQL after migrations; continuing startup.");
+  }
+}
+
 async function main(): Promise<void> {
   const resolved = await resolveMigrationConnection();
 
@@ -22,8 +45,14 @@ async function main(): Promise<void> {
     }
     console.log("Migrations complete");
   } finally {
-    await resolved.stop();
+    await stopWithTimeout(resolved.stop);
   }
 }
 
-await main();
+try {
+  await main();
+  process.exit(0);
+} catch (error) {
+  console.error(error);
+  process.exit(1);
+}

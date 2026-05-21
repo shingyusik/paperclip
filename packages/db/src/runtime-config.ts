@@ -139,6 +139,12 @@ function asPositiveInt(value: unknown): number | null {
   return rounded > 0 ? rounded : null;
 }
 
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value?.trim()) return null;
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function readConfig(configPath: string): PartialConfig | null {
   if (!existsSync(configPath)) return null;
 
@@ -220,7 +226,11 @@ export function resolveDatabaseTarget(): ResolvedDatabaseTarget {
     };
   }
 
-  const port = config?.database?.embeddedPostgresPort ?? 54329;
+  const port =
+    parsePositiveInt(process.env.PAPERCLIP_EMBEDDED_POSTGRES_PORT) ??
+    parsePositiveInt(envEntries.PAPERCLIP_EMBEDDED_POSTGRES_PORT) ??
+    config?.database?.embeddedPostgresPort ??
+    54329;
   const dataDir = resolveHomeAwarePath(
     config?.database?.embeddedPostgresDataDir ?? resolveDefaultEmbeddedPostgresDir(),
   );

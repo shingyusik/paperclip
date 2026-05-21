@@ -108,6 +108,12 @@ function detectTailnetBindHost(): string | undefined {
   }
 }
 
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value?.trim()) return null;
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function loadConfig(): Config {
   const fileConfig = readConfigFile();
   const fileDatabaseMode =
@@ -302,7 +308,10 @@ export function loadConfig(): Config {
     embeddedPostgresDataDir: resolveHomeAwarePath(
       fileConfig?.database.embeddedPostgresDataDir ?? resolveDefaultEmbeddedPostgresDir(),
     ),
-    embeddedPostgresPort: fileConfig?.database.embeddedPostgresPort ?? 54329,
+    embeddedPostgresPort:
+      parsePositiveInt(process.env.PAPERCLIP_EMBEDDED_POSTGRES_PORT) ??
+      fileConfig?.database.embeddedPostgresPort ??
+      54329,
     databaseBackupEnabled,
     databaseBackupIntervalMinutes,
     databaseBackupRetentionDays,
