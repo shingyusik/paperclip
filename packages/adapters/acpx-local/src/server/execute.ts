@@ -183,13 +183,41 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
     await ensureParentDir(target);
-    await fs.symlink(resolvedSource, target);
+    try {
+      await fs.symlink(resolvedSource, target);
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        ((error as { code?: string }).code === "EPERM" || (error as { code?: string }).code === "UNKNOWN")
+      ) {
+        await fs.copyFile(resolvedSource, target);
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
   if (!existing.isSymbolicLink()) {
     await fs.rm(target, { recursive: true, force: true });
-    await fs.symlink(resolvedSource, target);
+    try {
+      await fs.symlink(resolvedSource, target);
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        ((error as { code?: string }).code === "EPERM" || (error as { code?: string }).code === "UNKNOWN")
+      ) {
+        await fs.copyFile(resolvedSource, target);
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
@@ -200,7 +228,21 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   if (resolvedLinkedPath === resolvedSource) return;
 
   await fs.unlink(target);
-  await fs.symlink(resolvedSource, target);
+  try {
+    await fs.symlink(resolvedSource, target);
+  } catch (error) {
+    if (
+      process.platform === "win32" &&
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      ((error as { code?: string }).code === "EPERM" || (error as { code?: string }).code === "UNKNOWN")
+    ) {
+      await fs.copyFile(resolvedSource, target);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function ensureCopiedFile(target: string, source: string): Promise<void> {

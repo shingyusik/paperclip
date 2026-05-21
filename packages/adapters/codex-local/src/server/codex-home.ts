@@ -49,7 +49,21 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   const existing = await fs.lstat(target).catch(() => null);
   if (!existing) {
     await ensureParentDir(target);
-    await fs.symlink(source, target);
+    try {
+      await fs.symlink(source, target);
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        ((error as { code?: string }).code === "EPERM" || (error as { code?: string }).code === "UNKNOWN")
+      ) {
+        await fs.copyFile(source, target);
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
@@ -64,7 +78,21 @@ async function ensureSymlink(target: string, source: string): Promise<void> {
   if (resolvedLinkedPath === source) return;
 
   await fs.unlink(target);
-  await fs.symlink(source, target);
+  try {
+    await fs.symlink(source, target);
+  } catch (error) {
+    if (
+      process.platform === "win32" &&
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      ((error as { code?: string }).code === "EPERM" || (error as { code?: string }).code === "UNKNOWN")
+    ) {
+      await fs.copyFile(source, target);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function ensureCopiedFile(target: string, source: string): Promise<void> {
@@ -105,7 +133,7 @@ export async function prepareManagedCodexHome(
   // run has no apiKey, remove it so the chatgpt-mode symlink can be restored.
   // Without this cleanup, ensureSymlink bails on a non-symlink and Codex keeps
   // authenticating with the stale key after it is removed from configuration.
-  if (!apiKey && seedFromShared) {
+  if (!apiKey && seedFromShared && process.platform !== "win32") {
     const authPath = path.join(targetHome, "auth.json");
     const existing = await fs.lstat(authPath).catch(() => null);
     if (existing && !existing.isSymbolicLink()) {
