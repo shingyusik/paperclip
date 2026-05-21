@@ -148,6 +148,31 @@ export {
 } from "./project.js";
 
 export {
+  createCompanyDocumentFolderSchema,
+  updateCompanyDocumentFolderSchema,
+  createCompanyDocumentSchema,
+  updateCompanyDocumentSchema,
+  type CreateCompanyDocumentFolder,
+  type UpdateCompanyDocumentFolder,
+  type CreateCompanyDocument,
+  type UpdateCompanyDocument,
+} from "./company-document.js";
+
+export {
+  projectMilestoneStatusSchema,
+  createProjectMilestoneSchema,
+  updateProjectMilestoneSchema,
+  reorderProjectMilestonesSchema,
+  linkProjectMilestoneIssueSchema,
+  reorderProjectMilestoneIssuesSchema,
+  type CreateProjectMilestone,
+  type UpdateProjectMilestone,
+  type ReorderProjectMilestones,
+  type LinkProjectMilestoneIssue,
+  type ReorderProjectMilestoneIssues,
+} from "./project-roadmap.js";
+
+export {
   createIssueSchema,
   createIssueInputSchema,
   createChildIssueSchema,

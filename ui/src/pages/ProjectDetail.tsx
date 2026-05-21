@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary } from "@paperclipai/shared";
+import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary, type ProjectRoadmap } from "@paperclipai/shared";
 import { budgetsApi } from "../api/budgets";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -33,7 +33,7 @@ import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slo
 
 /* ── Top-level tab types ── */
 
-type ProjectBaseTab = "overview" | "list" | "plugin-operations" | "workspaces" | "configuration" | "budget";
+type ProjectBaseTab = "overview" | "list" | "roadmap" | "plugin-operations" | "workspaces" | "configuration" | "budget";
 type ProjectPluginTab = `plugin:${string}`;
 type ProjectTab = ProjectBaseTab | ProjectPluginTab;
 
@@ -47,6 +47,7 @@ function resolveProjectTab(pathname: string, projectId: string): ProjectTab | nu
   if (projectsIdx === -1 || segments[projectsIdx + 1] !== projectId) return null;
   const tab = segments[projectsIdx + 2];
   if (tab === "overview") return "overview";
+  if (tab === "roadmap") return "roadmap";
   if (tab === "configuration") return "configuration";
   if (tab === "budget") return "budget";
   if (tab === "issues") return "list";
@@ -98,6 +99,145 @@ function OverviewContent({
 }
 
 /* ── Color picker popover ── */
+
+function ProjectRoadmapContent({
+  projectId,
+  companyId,
+}: {
+  projectId: string;
+  companyId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+
+  const roadmapQuery = useQuery({
+    queryKey: queryKeys.projects.roadmap(projectId),
+    queryFn: () => projectsApi.getRoadmap(projectId, companyId),
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects.roadmap(projectId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listByProject(companyId, projectId) });
+  };
+
+  const createMilestone = useMutation({
+    mutationFn: () => projectsApi.createMilestone(projectId, {
+      title: title.trim(),
+      description: description.trim() || null,
+      targetDate: targetDate || null,
+    }, companyId),
+    onSuccess: () => {
+      setTitle("");
+      setDescription("");
+      setTargetDate("");
+      invalidate();
+    },
+  });
+
+  const linkIssue = useMutation({
+    mutationFn: (input: { milestoneId: string; issueId: string; position: number }) =>
+      projectsApi.linkMilestoneIssue(projectId, input.milestoneId, {
+        issueId: input.issueId,
+        position: input.position,
+      }, companyId),
+    onSuccess: invalidate,
+  });
+
+  const unlinkIssue = useMutation({
+    mutationFn: (input: { milestoneId: string; issueId: string }) =>
+      projectsApi.unlinkMilestoneIssue(projectId, input.milestoneId, input.issueId, companyId),
+    onSuccess: invalidate,
+  });
+
+  const updateMilestone = useMutation({
+    mutationFn: (input: { milestoneId: string; status: string }) =>
+      projectsApi.updateMilestone(projectId, input.milestoneId, { status: input.status }, companyId),
+    onSuccess: invalidate,
+  });
+
+  if (roadmapQuery.isLoading) return <PageSkeleton variant="list" />;
+  if (roadmapQuery.error) return <p className="text-sm text-destructive">{roadmapQuery.error.message}</p>;
+
+  const roadmap = roadmapQuery.data as ProjectRoadmap | undefined;
+  if (!roadmap) return null;
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-md border border-border p-4">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_160px_auto]">
+          <input value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Milestone title" />
+          <input value={description} onChange={(event) => setDescription(event.target.value)} className="rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Description" />
+          <input value={targetDate} onChange={(event) => setTargetDate(event.target.value)} type="date" className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
+          <Button disabled={!title.trim() || createMilestone.isPending} onClick={() => createMilestone.mutate()}>
+            Add milestone
+          </Button>
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        {roadmap.milestones.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground">No milestones yet.</p>
+        ) : (
+          roadmap.milestones.map((milestone) => {
+            const done = milestone.progress.done ?? 0;
+            const total = milestone.issues.length;
+            return (
+              <section key={milestone.id} className="rounded-md border border-border p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-semibold">{milestone.title}</h3>
+                    {milestone.description ? <p className="mt-1 text-sm text-muted-foreground">{milestone.description}</p> : null}
+                    <p className="mt-2 text-xs text-muted-foreground">{done}/{total} done{milestone.targetDate ? ` · ${milestone.targetDate}` : ""}</p>
+                  </div>
+                  <select value={milestone.status} onChange={(event) => updateMilestone.mutate({ milestoneId: milestone.id, status: event.target.value })} className="rounded-md border border-input bg-background px-2 py-1 text-xs">
+                    <option value="planned">Planned</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div className="mt-4 space-y-2">
+                  {milestone.issues.map((entry) => (
+                    <div key={entry.id} className="flex items-start justify-between gap-2 rounded-md bg-muted/50 p-2 text-sm">
+                      <Link to={`/issues/${entry.issue.id}`} className="min-w-0 truncate hover:underline">{entry.issue.identifier ? `${entry.issue.identifier} ` : ""}{entry.issue.title}</Link>
+                      <button onClick={() => unlinkIssue.mutate({ milestoneId: milestone.id, issueId: entry.issue.id })} className="text-xs text-muted-foreground hover:text-foreground">Remove</button>
+                    </div>
+                  ))}
+                </div>
+                {roadmap.unassignedIssues.length > 0 ? (
+                  <select className="mt-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value="" onChange={(event) => {
+                    if (!event.target.value) return;
+                    linkIssue.mutate({ milestoneId: milestone.id, issueId: event.target.value, position: milestone.issues.length });
+                  }}>
+                    <option value="">Add backlog item...</option>
+                    {roadmap.unassignedIssues.map((issue) => (
+                      <option key={issue.id} value={issue.id}>{issue.identifier ? `${issue.identifier} ` : ""}{issue.title}</option>
+                    ))}
+                  </select>
+                ) : null}
+              </section>
+            );
+          })
+        )}
+      </div>
+
+      {roadmap.unassignedIssues.length > 0 ? (
+        <section className="rounded-md border border-border p-4">
+          <h3 className="text-sm font-semibold">Backlog</h3>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {roadmap.unassignedIssues.map((issue) => (
+              <Link key={issue.id} to={`/issues/${issue.id}`} className="rounded-md bg-muted/50 p-2 text-sm hover:bg-muted">
+                {issue.identifier ? `${issue.identifier} ` : ""}{issue.title}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
 
 function ColorPicker({
   currentColor,
@@ -583,6 +723,9 @@ export function ProjectDetail() {
     if (cachedTab === "overview") {
       return <Navigate to={`/projects/${canonicalProjectRef}/overview`} replace />;
     }
+    if (cachedTab === "roadmap") {
+      return <Navigate to={`/projects/${canonicalProjectRef}/roadmap`} replace />;
+    }
     if (cachedTab === "configuration") {
       return <Navigate to={`/projects/${canonicalProjectRef}/configuration`} replace />;
     }
@@ -619,6 +762,8 @@ export function ProjectDetail() {
     }
     if (tab === "overview") {
       navigate(`/projects/${canonicalProjectRef}/overview`);
+    } else if (tab === "roadmap") {
+      navigate(`/projects/${canonicalProjectRef}/roadmap`);
     } else if (tab === "workspaces") {
       navigate(`/projects/${canonicalProjectRef}/workspaces`);
     } else if (tab === "budget") {
@@ -698,6 +843,7 @@ export function ProjectDetail() {
         <PageTabBar
           items={[
             { value: "list", label: "Issues" },
+            { value: "roadmap", label: "Roadmap" },
             { value: "overview", label: "Overview" },
             ...(project.managedByPlugin ? [{ value: "plugin-operations", label: "Plugin operations" }] : []),
             ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
@@ -727,6 +873,10 @@ export function ProjectDetail() {
 
       {activeTab === "list" && project?.id && resolvedCompanyId && (
         <ProjectIssuesList projectId={project.id} companyId={resolvedCompanyId} />
+      )}
+
+      {activeTab === "roadmap" && project?.id && resolvedCompanyId && (
+        <ProjectRoadmapContent projectId={project.id} companyId={resolvedCompanyId} />
       )}
 
       {activeTab === "plugin-operations" && project?.id && resolvedCompanyId && project.managedByPlugin && (

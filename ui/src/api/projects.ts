@@ -1,5 +1,8 @@
 import type {
   Project,
+  ProjectRoadmap,
+  ProjectMilestone,
+  ProjectMilestoneIssue,
   ProjectWorkspace,
   WorkspaceOperation,
   WorkspaceRuntimeControlTarget,
@@ -24,6 +27,32 @@ export const projectsApi = {
     api.post<Project>(`/companies/${companyId}/projects`, data),
   update: (id: string, data: Record<string, unknown>, companyId?: string) =>
     api.patch<Project>(projectPath(id, companyId), data),
+  getRoadmap: (projectId: string, companyId?: string) =>
+    api.get<ProjectRoadmap>(projectPath(projectId, companyId, "/roadmap")),
+  createMilestone: (projectId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectMilestone>(projectPath(projectId, companyId, "/roadmap/milestones"), data),
+  updateMilestone: (projectId: string, milestoneId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.patch<ProjectMilestone>(
+      projectPath(projectId, companyId, `/roadmap/milestones/${encodeURIComponent(milestoneId)}`),
+      data,
+    ),
+  deleteMilestone: (projectId: string, milestoneId: string, companyId?: string) =>
+    api.delete<ProjectMilestone>(
+      projectPath(projectId, companyId, `/roadmap/milestones/${encodeURIComponent(milestoneId)}`),
+    ),
+  linkMilestoneIssue: (projectId: string, milestoneId: string, data: Record<string, unknown>, companyId?: string) =>
+    api.post<ProjectMilestoneIssue>(
+      projectPath(projectId, companyId, `/roadmap/milestones/${encodeURIComponent(milestoneId)}/issues`),
+      data,
+    ),
+  unlinkMilestoneIssue: (projectId: string, milestoneId: string, issueId: string, companyId?: string) =>
+    api.delete<ProjectMilestoneIssue>(
+      projectPath(
+        projectId,
+        companyId,
+        `/roadmap/milestones/${encodeURIComponent(milestoneId)}/issues/${encodeURIComponent(issueId)}`,
+      ),
+    ),
   listWorkspaces: (projectId: string, companyId?: string) =>
     api.get<ProjectWorkspace[]>(projectPath(projectId, companyId, "/workspaces")),
   createWorkspace: (projectId: string, data: Record<string, unknown>, companyId?: string) =>

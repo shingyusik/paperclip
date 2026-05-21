@@ -3,9 +3,14 @@ import type { Db } from "@paperclipai/db";
 import {
   createProjectSchema,
   createProjectWorkspaceSchema,
+  createProjectMilestoneSchema,
   findWorkspaceCommandDefinition,
   isUuidLike,
+  linkProjectMilestoneIssueSchema,
   matchWorkspaceRuntimeServiceToCommand,
+  reorderProjectMilestoneIssuesSchema,
+  reorderProjectMilestonesSchema,
+  updateProjectMilestoneSchema,
   updateProjectSchema,
   updateProjectWorkspaceSchema,
   workspaceRuntimeControlTargetSchema,
@@ -13,7 +18,7 @@ import {
 import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } from "@paperclipai/shared";
 import { trackProjectCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
-import { projectService, logActivity, workspaceOperationService } from "../services/index.js";
+import { projectRoadmapService, projectService, logActivity, workspaceOperationService } from "../services/index.js";
 import { conflict, forbidden } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
@@ -41,6 +46,7 @@ const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
 export function projectRoutes(db: Db) {
   const router = Router();
   const svc = projectService(db);
+  const roadmapSvc = projectRoadmapService(db);
   const secretsSvc = secretService(db);
   const workspaceOperations = workspaceOperationService(db);
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
@@ -113,6 +119,209 @@ export function projectRoutes(db: Db) {
     }
     assertCompanyAccess(req, project.companyId);
     res.json(project);
+  });
+
+  router.get("/projects/:id/roadmap", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const roadmap = await roadmapSvc.getRoadmap(project.id);
+    res.json(roadmap);
+  });
+
+  router.post("/projects/:id/roadmap/milestones", validate(createProjectMilestoneSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const milestone = await roadmapSvc.createMilestone(project.id, req.body);
+    if (!milestone) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.milestone_created",
+      entityType: "project_milestone",
+      entityId: milestone.id,
+      details: { projectId: project.id, title: milestone.title, targetDate: milestone.targetDate },
+    });
+    res.status(201).json(milestone);
+  });
+
+  router.patch("/projects/:id/roadmap/milestones/:milestoneId", validate(updateProjectMilestoneSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const milestoneId = req.params.milestoneId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const milestone = await roadmapSvc.updateMilestone(project.id, milestoneId, req.body);
+    if (!milestone) {
+      res.status(404).json({ error: "Milestone not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.milestone_updated",
+      entityType: "project_milestone",
+      entityId: milestone.id,
+      details: { projectId: project.id, changedKeys: Object.keys(req.body).sort() },
+    });
+    res.json(milestone);
+  });
+
+  router.post("/projects/:id/roadmap/milestones/reorder", validate(reorderProjectMilestonesSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const milestones = await roadmapSvc.reorderMilestones(project.id, req.body.milestoneIds);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.milestones_reordered",
+      entityType: "project",
+      entityId: project.id,
+      details: { milestoneIds: req.body.milestoneIds },
+    });
+    res.json(milestones);
+  });
+
+  router.delete("/projects/:id/roadmap/milestones/:milestoneId", async (req, res) => {
+    const id = req.params.id as string;
+    const milestoneId = req.params.milestoneId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const milestone = await roadmapSvc.deleteMilestone(project.id, milestoneId);
+    if (!milestone) {
+      res.status(404).json({ error: "Milestone not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.milestone_deleted",
+      entityType: "project_milestone",
+      entityId: milestone.id,
+      details: { projectId: project.id, title: milestone.title },
+    });
+    res.json(milestone);
+  });
+
+  router.post(
+    "/projects/:id/roadmap/milestones/:milestoneId/issues",
+    validate(linkProjectMilestoneIssueSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const milestoneId = req.params.milestoneId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+      const link = await roadmapSvc.linkIssue(project.id, milestoneId, req.body.issueId, req.body.position);
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.milestone_issue_linked",
+        entityType: "project_milestone",
+        entityId: milestoneId,
+        details: { projectId: project.id, issueId: req.body.issueId },
+      });
+      res.status(201).json(link);
+    },
+  );
+
+  router.post(
+    "/projects/:id/roadmap/milestones/:milestoneId/issues/reorder",
+    validate(reorderProjectMilestoneIssuesSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const milestoneId = req.params.milestoneId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+      const links = await roadmapSvc.reorderIssues(project.id, milestoneId, req.body.issueIds);
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        action: "project.milestone_issues_reordered",
+        entityType: "project_milestone",
+        entityId: milestoneId,
+        details: { projectId: project.id, issueIds: req.body.issueIds },
+      });
+      res.json(links);
+    },
+  );
+
+  router.delete("/projects/:id/roadmap/milestones/:milestoneId/issues/:issueId", async (req, res) => {
+    const id = req.params.id as string;
+    const milestoneId = req.params.milestoneId as string;
+    const issueId = req.params.issueId as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const link = await roadmapSvc.unlinkIssue(project.id, milestoneId, issueId);
+    if (!link) {
+      res.status(404).json({ error: "Milestone issue link not found" });
+      return;
+    }
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      action: "project.milestone_issue_unlinked",
+      entityType: "project_milestone",
+      entityId: milestoneId,
+      details: { projectId: project.id, issueId },
+    });
+    res.json(link);
   });
 
   router.post("/companies/:companyId/projects", validate(createProjectSchema), async (req, res) => {

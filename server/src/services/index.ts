@@ -1,6 +1,7 @@
 export { companyService } from "./companies.js";
 export { companySearchService } from "./company-search.js";
 export { feedbackService } from "./feedback.js";
+export { companyDocumentService } from "./company-documents.js";
 export { companySkillService } from "./company-skills.js";
 export { agentService, deduplicateAgentName } from "./agents.js";
 export { agentInstructionsService, syncInstructionsBundleConfigFromFilePath } from "./agent-instructions.js";
@@ -13,6 +14,7 @@ export {
   refreshIssueContinuationSummary,
 } from "./issue-continuation-summary.js";
 export { projectService } from "./projects.js";
+export { projectRoadmapService } from "./project-roadmap.js";
 export {
   clampIssueListLimit,
   ISSUE_LIST_DEFAULT_LIMIT,

@@ -91,6 +91,20 @@ export type {
 export type { AssetImage } from "./asset.js";
 export type { Project, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, ProjectManagedByPlugin, ProjectWorkspace } from "./project.js";
 export type {
+  CompanyDocumentEntry,
+  CompanyDocumentEntrySummary,
+  CompanyDocumentFolder,
+  CompanyDocumentLibrary,
+} from "./company-document.js";
+export {
+  PROJECT_MILESTONE_STATUSES,
+  type ProjectMilestone,
+  type ProjectMilestoneIssue,
+  type ProjectMilestoneProgress,
+  type ProjectMilestoneStatus,
+  type ProjectRoadmap,
+} from "./project-roadmap.js";
+export type {
   CompanySearchHighlight,
   CompanySearchIssueSummary,
   CompanySearchResponse,
