@@ -1,4 +1,4 @@
-import { NavLink } from "@/lib/router";
+import { NavLink, useLocation } from "@/lib/router";
 import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { cn } from "../lib/utils";
 import { useSidebar } from "../context/SidebarContext";
@@ -16,6 +16,7 @@ interface SidebarNavItemProps {
   textBadgeTone?: "default" | "amber";
   alert?: boolean;
   liveCount?: number;
+  isActiveMatch?: (pathname: string) => boolean;
 }
 
 export function SidebarNavItem({
@@ -30,8 +31,10 @@ export function SidebarNavItem({
   textBadgeTone = "default",
   alert = false,
   liveCount,
+  isActiveMatch,
 }: SidebarNavItemProps) {
   const { isMobile, setSidebarOpen } = useSidebar();
+  const location = useLocation();
 
   return (
     <NavLink
@@ -42,7 +45,7 @@ export function SidebarNavItem({
       className={({ isActive }) =>
         cn(
           "flex items-center gap-2.5 px-3 py-2 pointer-coarse:py-1.5 text-[13px] font-medium transition-colors",
-          isActive
+          isActive || isActiveMatch?.(location.pathname)
             ? "bg-accent text-foreground"
             : "text-foreground/80 hover:bg-accent/50 hover:text-foreground",
           className,
