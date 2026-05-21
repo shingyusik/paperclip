@@ -7,7 +7,6 @@ import { useCompany } from "../context/CompanyContext";
 import { useToastActions } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { MarkdownBody } from "../components/MarkdownBody";
-import { PageSkeleton } from "../components/PageSkeleton";
 import { Button } from "@/components/ui/button";
 
 function folderLabel(folder: CompanyDocumentFolder, foldersById: Map<string, CompanyDocumentFolder>) {
@@ -136,8 +135,6 @@ export function CompanyDocuments() {
   });
 
   if (!selectedCompanyId) return <p className="text-sm text-muted-foreground">Select a company to view documents.</p>;
-  if (libraryQuery.isLoading) return <PageSkeleton variant="list" />;
-  if (libraryQuery.error) return <p className="text-sm text-destructive">{libraryQuery.error.message}</p>;
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] gap-6">
@@ -176,6 +173,7 @@ export function CompanyDocuments() {
             folders={folders}
             documents={documents}
             selectedId={selectedId}
+            isLoading={libraryQuery.isLoading}
             onSelect={(document) => {
               setSelectedId(document.id);
               setDraftTitle("");
@@ -186,6 +184,9 @@ export function CompanyDocuments() {
       </aside>
 
       <main className="min-w-0 flex-1">
+        {libraryQuery.error ? (
+          <p className="mb-4 text-sm text-destructive">{libraryQuery.error.message}</p>
+        ) : null}
         {selectedDocument ? (
           <DocumentEditor
             document={selectedDocument}
@@ -251,13 +252,19 @@ function DocumentTree({
   folders,
   documents,
   selectedId,
+  isLoading,
   onSelect,
 }: {
   folders: CompanyDocumentFolder[];
   documents: CompanyDocumentEntrySummary[];
   selectedId: string | null;
+  isLoading: boolean;
   onSelect: (document: CompanyDocumentEntrySummary) => void;
 }) {
+  if (isLoading) {
+    return <div className="px-2 py-6 text-center text-xs text-muted-foreground">Loading documents...</div>;
+  }
+
   return (
     <div className="space-y-1 text-sm">
       <TreeFolder
