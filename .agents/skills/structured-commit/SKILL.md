@@ -129,6 +129,14 @@ Examples:
 [UPDATE] Make document library read-only viewer
 ```
 
+Read the closest example before finalizing a commit message:
+
+- [`examples/add-document-library.md`](./examples/add-document-library.md) for new feature commits
+- [`examples/fix-document-navigation.md`](./examples/fix-document-navigation.md) for bug-fix commits
+- [`examples/update-read-only-viewer.md`](./examples/update-read-only-viewer.md) for behavior updates
+- [`examples/docs-developing-env.md`](./examples/docs-developing-env.md) for docs-only commits
+- [`examples/anti-patterns.md`](./examples/anti-patterns.md) for invalid tags, vague subjects, and unsafe history operations
+
 Rules:
 
 - Use one uppercase tag inside square brackets.
