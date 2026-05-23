@@ -1,3 +1,18 @@
+import type {
+  AdapterEnvironmentTestResult,
+  AdapterExecutionContext,
+  AdapterExecutionResult,
+  AdapterInvocationMeta,
+  ServerAdapterModule,
+} from "@paperclipai/adapter-utils";
+import {
+  buildInvocationEnvForLogs,
+  buildPaperclipEnv,
+  ensurePathInEnv,
+  resolveCommandForLogs,
+  runChildProcess,
+} from "@paperclipai/adapter-utils/server-utils";
+
 export type HermesProfileAdapterConfigField = {
   key: string;
   label: string;
@@ -15,6 +30,7 @@ export type HermesProfileAdapterConfigSchema = {
 };
 
 export const HERMES_PROFILE_ADAPTER_TYPE = "hermes_profile";
+export const PAPERCLIP_HERMES_TASK_PROMPT_CONTEXT_KEY = "paperclipHermesTaskPrompt";
 
 export type HermesProfileAdapterConfig = {
   profileName: string;
@@ -27,6 +43,8 @@ export type HermesProfileAdapterConfig = {
   source?: string;
   yolo?: boolean;
   extraArgs?: string[];
+  timeoutSec?: number;
+  graceSec?: number;
 };
 
 export type HermesProfileCommandBuildOptions = {
@@ -43,8 +61,24 @@ export type HermesProfileCommandSpec = {
   displayEnv: Record<string, string>;
 };
 
+export type HermesProfileInvocationInput = {
+  config: unknown;
+  runtime: { sessionId?: string | null; sessionDisplayId?: string | null };
+  context: Record<string, unknown>;
+};
+
+export type HermesProfileInvocation = {
+  prompt: string;
+  spec: HermesProfileCommandSpec;
+  meta: AdapterInvocationMeta;
+  timeoutSec: number;
+  graceSec: number;
+};
+
 const DEFAULT_HERMES_BIN = "hermes";
 const DEFAULT_SOURCE = "paperclip";
+const DEFAULT_TIMEOUT_SEC = 0;
+const DEFAULT_GRACE_SEC = 15;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -70,6 +104,21 @@ function readBoolean(value: unknown): boolean {
   return value === true;
 }
 
+function readNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function readContextPrompt(context: Record<string, unknown>): string | null {
+  const hermesTaskPrompt = asTrimmedString(context[PAPERCLIP_HERMES_TASK_PROMPT_CONTEXT_KEY]);
+  if (hermesTaskPrompt) return hermesTaskPrompt;
+  return asTrimmedString(context.paperclipTaskMarkdown) ?? null;
+}
+
 export function normalizeHermesProfileAdapterConfig(config: unknown): HermesProfileAdapterConfig {
   const record = asRecord(config);
   const profileName = asTrimmedString(record.profileName);
@@ -88,6 +137,8 @@ export function normalizeHermesProfileAdapterConfig(config: unknown): HermesProf
     source: asTrimmedString(record.source),
     yolo: readBoolean(record.yolo),
     extraArgs: asStringArray(record.extraArgs),
+    timeoutSec: readNumber(record.timeoutSec, DEFAULT_TIMEOUT_SEC),
+    graceSec: readNumber(record.graceSec, DEFAULT_GRACE_SEC),
   };
 }
 
@@ -130,6 +181,105 @@ export function buildHermesProfileCommand(
       return arg;
     }),
     displayEnv,
+  };
+}
+
+export function buildHermesProfileInvocation(input: HermesProfileInvocationInput): HermesProfileInvocation {
+  const normalized = normalizeHermesProfileAdapterConfig(input.config);
+  const prompt = readContextPrompt(input.context);
+  if (!prompt) {
+    throw new Error("Hermes profile adapter requires paperclipHermesTaskPrompt or paperclipTaskMarkdown context");
+  }
+  const resumeSessionId = input.runtime.sessionDisplayId ?? input.runtime.sessionId ?? null;
+  const spec = buildHermesProfileCommand(normalized, { prompt, resumeSessionId });
+  return {
+    prompt,
+    spec,
+    timeoutSec: normalized.timeoutSec ?? DEFAULT_TIMEOUT_SEC,
+    graceSec: normalized.graceSec ?? DEFAULT_GRACE_SEC,
+    meta: {
+      adapterType: HERMES_PROFILE_ADAPTER_TYPE,
+      command: spec.command,
+      cwd: spec.cwd,
+      commandArgs: spec.displayArgs,
+      env: spec.displayEnv,
+      prompt: `<prompt ${prompt.length} chars>`,
+      promptMetrics: { chars: prompt.length },
+    },
+  };
+}
+
+export function createServerAdapter(): ServerAdapterModule {
+  return {
+    type: HERMES_PROFILE_ADAPTER_TYPE,
+    supportsLocalAgentJwt: false,
+    agentConfigurationDoc:
+      "Hermes profile adapter. Configure profileName and install this package as an external adapter plugin; Paperclip supplies paperclipHermesTaskPrompt at heartbeat invocation time.",
+    async testEnvironment(ctx): Promise<AdapterEnvironmentTestResult> {
+      const normalized = normalizeHermesProfileAdapterConfig(ctx.config);
+      return {
+        adapterType: HERMES_PROFILE_ADAPTER_TYPE,
+        status: "pass",
+        testedAt: new Date().toISOString(),
+        checks: [
+          {
+            code: "hermes_profile_config",
+            level: "info",
+            message: `Hermes profile configured: ${normalized.profileName}`,
+          },
+        ],
+      };
+    },
+    async execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
+      const invocation = buildHermesProfileInvocation({
+        config: ctx.config,
+        runtime: ctx.runtime,
+        context: ctx.context,
+      });
+      const baseEnv = { ...process.env, ...buildPaperclipEnv(ctx.agent), ...invocation.spec.env };
+      const runtimeEnv = ensurePathInEnv(baseEnv);
+      const cwd = invocation.spec.cwd ?? process.cwd();
+      const resolvedCommand = await resolveCommandForLogs(invocation.spec.command, cwd, runtimeEnv);
+      const loggedEnv = buildInvocationEnvForLogs(invocation.spec.displayEnv, {
+        runtimeEnv,
+        includeRuntimeKeys: ["HOME"],
+        resolvedCommand,
+      });
+      await ctx.onMeta?.({
+        ...invocation.meta,
+        command: resolvedCommand,
+        cwd,
+        env: loggedEnv,
+      });
+      const proc = await runChildProcess(ctx.runId, invocation.spec.command, invocation.spec.args, {
+        cwd,
+        env: invocation.spec.env,
+        timeoutSec: invocation.timeoutSec,
+        graceSec: invocation.graceSec,
+        onLog: ctx.onLog,
+        onSpawn: ctx.onSpawn,
+      });
+
+      if (proc.timedOut) {
+        return {
+          exitCode: proc.exitCode,
+          signal: proc.signal,
+          timedOut: true,
+          errorMessage: `Timed out after ${invocation.timeoutSec}s`,
+          resultJson: { stdout: proc.stdout, stderr: proc.stderr },
+        };
+      }
+      const result: AdapterExecutionResult = {
+        exitCode: proc.exitCode,
+        signal: proc.signal,
+        timedOut: false,
+        resultJson: { stdout: proc.stdout, stderr: proc.stderr },
+      };
+      if ((proc.exitCode ?? 0) !== 0) {
+        result.errorMessage = `Hermes profile process exited with code ${proc.exitCode ?? -1}`;
+      }
+      return result;
+    },
   };
 }
 
@@ -178,6 +328,13 @@ export const hermesProfileAdapterConfigSchema: HermesProfileAdapterConfigSchema 
       label: "Provider",
       type: "text",
       hint: "Optional provider override passed to Hermes chat.",
+    },
+    {
+      key: "timeoutSec",
+      label: "Timeout seconds",
+      type: "number",
+      default: DEFAULT_TIMEOUT_SEC,
+      hint: "Optional process timeout. 0 disables the timeout.",
     },
     {
       key: "yolo",

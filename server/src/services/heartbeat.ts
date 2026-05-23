@@ -168,6 +168,10 @@ import { environmentService } from "./environments.js";
 import { environmentRuntimeService } from "./environment-runtime.js";
 import { environmentRunOrchestrator } from "./environment-run-orchestrator.js";
 import { isUnsafeSessionWorkspaceCwd } from "./session-workspace-cwd.js";
+import {
+  attachHermesProfileTaskPrompt,
+  HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY,
+} from "./hermes-profile-context.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -7101,8 +7105,27 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
     }
     if (taskMarkdown) {
       context.paperclipTaskMarkdown = taskMarkdown;
+      attachHermesProfileTaskPrompt(context, {
+        agent: {
+          name: agent.name,
+          role: agent.role,
+          reportingLine: agent.reportsTo ? `reports_to:${agent.reportsTo}` : null,
+          runtimeSummary: readNonEmptyString(context.paperclipPrivateRuntimeSummary),
+        },
+        companyMission: readNonEmptyString(context.paperclipCompanyMission),
+        projectRoadmap: readNonEmptyString(context.paperclipProjectRoadmap),
+        projectSpec: readNonEmptyString(context.paperclipProjectSpec),
+        milestoneContext: readNonEmptyString(context.paperclipMilestoneContext),
+        taskContext: taskMarkdown,
+        issuePlan: continuationSummary?.body ?? readNonEmptyString(context.paperclipIssuePlan),
+        meetingContext: wakeCommentContext?.body ?? readNonEmptyString(context.paperclipMeetingContext),
+        acceptanceCriteria: Array.isArray(context.paperclipAcceptanceCriteria)
+          ? context.paperclipAcceptanceCriteria.filter((item): item is string => typeof item === "string")
+          : readNonEmptyString(context.paperclipAcceptanceCriteria),
+      });
     } else {
       delete context.paperclipTaskMarkdown;
+      delete context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY];
     }
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;

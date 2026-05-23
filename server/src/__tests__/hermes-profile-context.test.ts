@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildHermesProfileTaskPrompt } from "../services/hermes-profile-context.js";
+import {
+  HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY,
+  attachHermesProfileTaskPrompt,
+  buildHermesProfileTaskPrompt,
+} from "../services/hermes-profile-context.js";
 
 describe("Hermes profile task prompt builder", () => {
   it("orders Paperclip context from identity through acceptance criteria", () => {
@@ -63,5 +67,24 @@ describe("Hermes profile task prompt builder", () => {
     expect(prompt).toContain("***REDACTED***");
     expect(prompt).not.toContain("sk-secret-value");
     expect(prompt).toContain("...[truncated");
+  });
+
+  it("attaches the generated prompt to heartbeat context for adapter invocation", () => {
+    const context: Record<string, unknown> = {
+      paperclipTaskMarkdown: "Task markdown from heartbeat.",
+      paperclipContinuationSummary: { body: "Continue after prior implementation." },
+    };
+
+    attachHermesProfileTaskPrompt(context, {
+      agent: { name: "Builder", role: "engineer", runtimeSummary: "Private summary." },
+      taskContext: "Task markdown from heartbeat.",
+      issuePlan: "Plan body.",
+      acceptanceCriteria: ["Tests pass"],
+    });
+
+    expect(context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY]).toContain("## Agent Identity");
+    expect(context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY]).toContain("## Current Task\nTask markdown from heartbeat.");
+    expect(context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY]).toContain("## Current Issue Plan\nPlan body.");
+    expect(context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY]).toContain("- Tests pass");
   });
 });

@@ -20,6 +20,8 @@ export type HermesProfileTaskPromptInput = {
   maxSectionChars?: number;
 };
 
+export const HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY = "paperclipHermesTaskPrompt";
+
 const DEFAULT_MAX_SECTION_CHARS = 4_000;
 
 function cleanText(value: string | null | undefined): string {
@@ -76,4 +78,12 @@ export function buildHermesProfileTaskPrompt(input: HermesProfileTaskPromptInput
   ].join("\n"));
 
   return sections.join("\n\n");
+}
+
+export function attachHermesProfileTaskPrompt(
+  context: Record<string, unknown>,
+  input: HermesProfileTaskPromptInput,
+): Record<string, unknown> {
+  context[HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY] = buildHermesProfileTaskPrompt(input);
+  return context;
 }

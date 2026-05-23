@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildHermesProfileCommand,
+  buildHermesProfileInvocation,
+  createServerAdapter,
   hermesProfileAdapterConfigSchema,
   normalizeHermesProfileAdapterConfig,
 } from "./index.js";
@@ -97,5 +99,28 @@ describe("Hermes profile adapter boundary", () => {
       "paperclip",
       "--verbose",
     ]);
+  });
+
+  it("builds invocation prompts from Paperclip heartbeat context and resumes Hermes sessions", () => {
+    const invocation = buildHermesProfileInvocation({
+      config: { profileName: "operator" },
+      runtime: { sessionId: "legacy-session", sessionDisplayId: null },
+      context: {
+        paperclipHermesTaskPrompt: "## Agent Identity\nName: Operator\n\n## Current Task\nImplement ISS-1",
+        paperclipTaskMarkdown: "fallback task markdown",
+      },
+    });
+
+    expect(invocation.prompt).toContain("## Current Task\nImplement ISS-1");
+    expect(invocation.spec.args).toContain("legacy-session");
+    expect(invocation.meta.prompt).toBe("<prompt 65 chars>");
+    expect(invocation.meta.commandArgs).not.toContain(invocation.prompt);
+  });
+
+  it("exposes a plugin-loadable server adapter boundary", () => {
+    const adapter = createServerAdapter();
+    expect(adapter.type).toBe("hermes_profile");
+    expect(adapter.supportsLocalAgentJwt).toBe(false);
+    expect(adapter.agentConfigurationDoc).toContain("Hermes profile");
   });
 });
