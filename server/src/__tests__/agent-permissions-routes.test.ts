@@ -585,6 +585,76 @@ describe.sequential("agent permission routes", () => {
     }));
   });
 
+  it("normalizes Hermes profile runtime binding on agent update while preserving unknown runtimeConfig keys", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .patch(`/api/agents/${agentId}`)
+      .send({
+        runtimeConfig: {
+          hermesProfile: {
+            kind: "hermes_profile",
+            profileName: "operator",
+            memoryPolicy: "summary_visible",
+          },
+          customRuntimeKey: "preserve-me",
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      agentId,
+      expect.objectContaining({
+        runtimeConfig: {
+          hermesProfile: {
+            kind: "hermes_profile",
+            profileName: "operator",
+            memoryPolicy: "summary_visible",
+            skillPolicy: "private",
+            selfImprovementPolicy: "proposal_only",
+            visibilityPolicy: "summary_only",
+          },
+          customRuntimeKey: "preserve-me",
+        },
+      }),
+      expect.anything(),
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: "agent.updated",
+    }));
+  });
+
+  it("rejects invalid Hermes profile runtime binding on agent update", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .patch(`/api/agents/${agentId}`)
+      .send({
+        runtimeConfig: {
+          hermesProfile: {
+            kind: "process",
+            profileName: "operator",
+          },
+        },
+      }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(mockAgentService.update).not.toHaveBeenCalled();
+  });
+
   it("normalizes cheap-profile env bindings through the adapter config secret pipeline", async () => {
     mockAgentService.getById.mockResolvedValue({
       ...baseAgent,
@@ -914,6 +984,87 @@ describe.sequential("agent permission routes", () => {
         },
       }),
     );
+  });
+
+  it("normalizes Hermes profile runtime binding on direct agent creation while preserving unknown runtimeConfig keys", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agents`)
+      .send({
+        name: "Hermes Builder",
+        role: "engineer",
+        adapterType: "process",
+        adapterConfig: {},
+        runtimeConfig: {
+          hermesProfile: {
+            kind: "hermes_profile",
+            profileName: "builder-private",
+          },
+          customRuntimeKey: {
+            preserved: true,
+          },
+        },
+      }));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(mockAgentService.create).toHaveBeenCalledWith(
+      companyId,
+      expect.objectContaining({
+        runtimeConfig: {
+          heartbeat: {
+            enabled: false,
+            maxConcurrentRuns: 20,
+          },
+          hermesProfile: {
+            kind: "hermes_profile",
+            profileName: "builder-private",
+            memoryPolicy: "private",
+            skillPolicy: "private",
+            selfImprovementPolicy: "proposal_only",
+            visibilityPolicy: "summary_only",
+          },
+          customRuntimeKey: {
+            preserved: true,
+          },
+        },
+      }),
+    );
+  });
+
+  it("rejects invalid Hermes profile runtime binding on direct agent creation", async () => {
+    const app = await createApp({
+      type: "board",
+      userId: "board-user",
+      source: "local_implicit",
+      isInstanceAdmin: true,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl)
+      .post(`/api/companies/${companyId}/agents`)
+      .send({
+        name: "Hermes Builder",
+        role: "engineer",
+        adapterType: "process",
+        adapterConfig: {},
+        runtimeConfig: {
+          hermesProfile: {
+            kind: "hermes_profile",
+            profileName: "",
+          },
+        },
+      }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Validation error");
+    expect(mockAgentService.create).not.toHaveBeenCalled();
   });
 
   it("seeds opencode agent creation with the static default model without live discovery", async () => {

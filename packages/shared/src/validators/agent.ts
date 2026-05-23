@@ -57,11 +57,32 @@ const agentModelProfileConfigSchema = z.object({
   adapterConfig: adapterConfigSchema,
 }).strict();
 
+export const hermesProfileRuntimeBindingSchema = z.object({
+  kind: z.literal("hermes_profile"),
+  profileName: z.string().trim().min(1).max(128),
+  hermesHomePath: z.string().trim().min(1).optional(),
+  workspacePath: z.string().trim().min(1).optional(),
+  memoryPolicy: z.enum(["private", "summary_visible"]).optional().default("private"),
+  skillPolicy: z.enum(["private", "summary_visible", "managed"]).optional().default("private"),
+  selfImprovementPolicy: z.enum(["disabled", "proposal_only", "auto_private"]).optional().default("proposal_only"),
+  visibilityPolicy: z.enum(["summary_only", "operator_raw_access"]).optional().default("summary_only"),
+}).strict();
+
+export type HermesProfileRuntimeBinding = z.infer<typeof hermesProfileRuntimeBindingSchema>;
+
 export const agentRuntimeConfigSchema = z.object({
   modelProfiles: z.object({
     cheap: agentModelProfileConfigSchema.optional(),
   }).strict().optional(),
+  hermesProfile: hermesProfileRuntimeBindingSchema.optional(),
 }).catchall(z.unknown());
+
+export function readHermesProfileRuntimeBinding(runtimeConfig: unknown): HermesProfileRuntimeBinding | null {
+  if (!runtimeConfig || typeof runtimeConfig !== "object") return null;
+  const hermesProfile = (runtimeConfig as { hermesProfile?: unknown }).hermesProfile;
+  const parsed = hermesProfileRuntimeBindingSchema.safeParse(hermesProfile);
+  return parsed.success ? parsed.data : null;
+}
 
 export const createAgentSchema = z.object({
   name: z.string().min(1),

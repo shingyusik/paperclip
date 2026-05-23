@@ -20,8 +20,25 @@ export interface AgentModelProfileConfig {
   adapterConfig: Record<string, unknown>;
 }
 
+export type HermesProfileMemoryPolicy = "private" | "summary_visible";
+export type HermesProfileSkillPolicy = "private" | "summary_visible" | "managed";
+export type HermesProfileSelfImprovementPolicy = "disabled" | "proposal_only" | "auto_private";
+export type HermesProfileVisibilityPolicy = "summary_only" | "operator_raw_access";
+
+export interface HermesProfileRuntimeBinding {
+  kind: "hermes_profile";
+  profileName: string;
+  hermesHomePath?: string;
+  workspacePath?: string;
+  memoryPolicy: HermesProfileMemoryPolicy;
+  skillPolicy: HermesProfileSkillPolicy;
+  selfImprovementPolicy: HermesProfileSelfImprovementPolicy;
+  visibilityPolicy: HermesProfileVisibilityPolicy;
+}
+
 export interface AgentRuntimeConfig extends Record<string, unknown> {
   modelProfiles?: Partial<Record<ModelProfileKey, AgentModelProfileConfig>>;
+  hermesProfile?: HermesProfileRuntimeBinding;
 }
 
 export type AgentInstructionsBundleMode = "managed" | "external";

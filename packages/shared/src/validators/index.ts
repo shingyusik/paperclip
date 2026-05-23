@@ -108,6 +108,8 @@ export {
   createAgentHireSchema,
   updateAgentSchema,
   agentRuntimeConfigSchema,
+  hermesProfileRuntimeBindingSchema,
+  readHermesProfileRuntimeBinding,
   agentInstructionsBundleModeSchema,
   updateAgentInstructionsBundleSchema,
   upsertAgentInstructionsFileSchema,

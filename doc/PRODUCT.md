@@ -30,6 +30,19 @@ Example: A CEO agent's adapter config tells it to "review what your executives a
 
 Then you define who reports to the CEO: a CTO managing programmers, a CMO managing the marketing team, and so on. Every agent in the tree gets their own adapter configuration.
 
+### Hermes Profile Runtime Model
+
+Hermes Agent is one supported runtime identity for a Paperclip employee, not a replacement for Paperclip itself and not the only adapter path. Paperclip remains the organization, operations, and governance control plane; Hermes remains the per-agent runtime that executes, remembers, learns, and owns its private profile state.
+
+A Paperclip agent can bind `runtime_config.hermesProfile` to a Hermes profile with metadata such as profile name, optional Hermes home/workspace paths, memory visibility policy, skill visibility/management policy, self-improvement policy, and summary-vs-raw-access visibility. The default product surface should show safe summaries and proposals, not raw private memory or skill files.
+
+Guardrails:
+
+- Paperclip coordinates and audits; it does not silently edit another agent's private Hermes memory or skills.
+- Agent-private learning can stay inside the bound Hermes profile according to that agent's policy.
+- Shared company/project rules, roadmaps, milestones, tasks, role/reporting changes, and organization-wide templates remain issue-backed and approval-gated.
+- Hermes profile binding is adapter/runtime metadata; other local CLI, process, HTTP, OpenClaw, and external plugin runtimes remain valid.
+
 ### Agent Execution
 
 Paperclip supports several ways to run an agent's heartbeat:

@@ -34,10 +34,13 @@ If an agent is already running, new wakeups are merged (coalesced) instead of la
 
 Common choices:
 
+- `hermes_profile`: runs a Hermes Agent profile/runtime with isolated memory, skills, sessions, cron/self-review, and workspace policy
 - `claude_local`: runs your local `claude` CLI
 - `codex_local`: runs your local `codex` CLI
 - `process`: generic shell command adapter
 - `http`: calls an external HTTP endpoint
+
+For `hermes_profile`, Paperclip treats the Hermes profile as the agent's private runtime identity. Paperclip may wake it, pass issue/company context, collect run summaries/artifacts, and enforce visibility/approval policy, but the profile owns its private memory and skills unless an explicit policy grants broader management.
 
 For `claude_local` and `codex_local`, Paperclip assumes the CLI is already installed and authenticated on the host machine.
 
@@ -51,7 +54,7 @@ In agent runtime settings, configure heartbeat policy:
 - `wakeOnOnDemand`: allow ping-style on-demand wakeups
 - `wakeOnAutomation`: allow system automation wakeups
 
-## 3.3 Working directory and execution limits
+## 3.3 Working directory, profile binding, and execution limits
 
 For local adapters, set:
 
@@ -59,6 +62,17 @@ For local adapters, set:
 - `timeoutSec` (max runtime per heartbeat)
 - `graceSec` (time before force-kill after timeout/cancel)
 - optional env vars and extra CLI args
+
+For `hermes_profile`, also set:
+
+- `profileName` or profile identifier
+- optional `hermesHome` / profile home override
+- optional execution `workspace`
+- memory visibility policy (`private`, `summary_only`, or explicitly shared)
+- skill visibility/management policy
+- self-improvement policy (whether the agent may update its own profile memory/skills and how those changes are surfaced)
+
+Paperclip should default to privacy-preserving visibility: show run status, summaries, artifacts, costs, and issue updates; keep raw memory/skill contents private unless intentionally exposed.
 
 ## 3.4 Prompt templates
 
