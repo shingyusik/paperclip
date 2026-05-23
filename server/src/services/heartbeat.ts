@@ -172,6 +172,10 @@ import {
   attachHermesProfileTaskPrompt,
   HERMES_PROFILE_TASK_PROMPT_CONTEXT_KEY,
 } from "./hermes-profile-context.js";
+import {
+  maybeRecordAgentRunReflection,
+  readStructuredRunReflectionFromResultJson,
+} from "./agent-reflections.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -8021,6 +8025,15 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         });
         const livenessRun = finalizedRun;
         await refreshContinuationSummaryForRun(livenessRun, agent);
+        if (outcome === "succeeded") {
+          await maybeRecordAgentRunReflection({
+            db,
+            agent,
+            run: livenessRun,
+            reflector: async ({ run: reflectionRun }) =>
+              readStructuredRunReflectionFromResultJson(reflectionRun.resultJson),
+          });
+        }
         const skipRunIssueComment = parseObject(livenessRun.contextSnapshot).skipIssueComment === true;
         if (issueId && outcome === "succeeded" && !skipRunIssueComment) {
           try {
