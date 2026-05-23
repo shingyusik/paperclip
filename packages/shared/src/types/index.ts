@@ -95,6 +95,11 @@ export type {
   AdapterEnvironmentCheck,
   AdapterEnvironmentTestResult,
 } from "./agent.js";
+export type {
+  AgentReflection,
+  AgentReflectionProposal,
+  AgentReflectionStatus,
+} from "./agent-reflection.js";
 export type { AssetImage } from "./asset.js";
 export type { Project, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, ProjectManagedByPlugin, ProjectWorkspace } from "./project.js";
 export type {

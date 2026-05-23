@@ -136,6 +136,13 @@ export {
 } from "./agent.js";
 
 export {
+  agentReflectionStatusSchema,
+  createAgentReflectionSchema,
+  type AgentReflectionStatus,
+  type CreateAgentReflection,
+} from "./agent-reflection.js";
+
+export {
   createProjectSchema,
   updateProjectSchema,
   createProjectWorkspaceSchema,
