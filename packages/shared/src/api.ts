@@ -22,4 +22,17 @@ export const API = {
   joinRequests: `${API_PREFIX}/join-requests`,
   members: `${API_PREFIX}/members`,
   admin: `${API_PREFIX}/admin`,
+  meetingRooms: {
+    list: `${API_PREFIX}/companies/:companyId/meeting-rooms`,
+    create: `${API_PREFIX}/companies/:companyId/meeting-rooms`,
+    detail: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId`,
+    update: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId`,
+    participants: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/participants`,
+    participant: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/participants/:participantId`,
+    messages: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/messages`,
+    summaries: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/summaries`,
+    summary: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/summaries/:summaryId`,
+    issueMeetingRooms: `${API_PREFIX}/companies/:companyId/issues/:issueId/meeting-rooms`,
+    projectDocumentMeetingRooms: `${API_PREFIX}/companies/:companyId/projects/:projectId/documents/:documentId/meeting-rooms`,
+  },
 } as const;

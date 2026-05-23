@@ -163,6 +163,24 @@ export {
 } from "./project.js";
 
 export {
+  meetingRoomStatusSchema,
+  meetingRoomOriginKindSchema,
+  meetingParticipantTypeSchema,
+  meetingParticipantRoleSchema,
+  meetingParticipantStatusSchema,
+  meetingMessageTypeSchema,
+  meetingSummaryStatusSchema,
+  meetingSummaryKindSchema,
+  createMeetingRoomSchema,
+  meetingRoomListQuerySchema,
+  updateMeetingRoomSchema,
+  addMeetingParticipantSchema,
+  postMeetingMessageSchema,
+  createMeetingSummarySchema,
+  updateMeetingSummarySchema,
+} from "./meeting-room.js";
+
+export {
   createIssueSchema,
   createIssueInputSchema,
   createChildIssueSchema,

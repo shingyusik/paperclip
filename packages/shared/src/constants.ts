@@ -349,6 +349,49 @@ export const PROJECT_DOCUMENT_KEYS = [
 ] as const;
 export type ProjectDocumentKey = (typeof PROJECT_DOCUMENT_KEYS)[number];
 
+export const MEETING_ROOM_STATUSES = ["open", "paused", "closed", "archived"] as const;
+export type MeetingRoomStatus = (typeof MEETING_ROOM_STATUSES)[number];
+
+export const MEETING_ROOM_ORIGIN_KINDS = [
+  "user_created",
+  "issue_triggered",
+  "project_triggered",
+  "document_triggered",
+  "system_triggered",
+] as const;
+export type MeetingRoomOriginKind = (typeof MEETING_ROOM_ORIGIN_KINDS)[number];
+
+export const MEETING_PARTICIPANT_TYPES = ["user", "agent", "team"] as const;
+export type MeetingParticipantType = (typeof MEETING_PARTICIPANT_TYPES)[number];
+
+export const MEETING_PARTICIPANT_ROLES = ["host", "member", "observer"] as const;
+export type MeetingParticipantRole = (typeof MEETING_PARTICIPANT_ROLES)[number];
+
+export const MEETING_PARTICIPANT_STATUSES = ["invited", "active", "left", "disabled"] as const;
+export type MeetingParticipantStatus = (typeof MEETING_PARTICIPANT_STATUSES)[number];
+
+export const MEETING_MESSAGE_TYPES = ["user", "agent", "system", "summary", "proposal"] as const;
+export type MeetingMessageType = (typeof MEETING_MESSAGE_TYPES)[number];
+
+export const MEETING_SUMMARY_STATUSES = [
+  "draft",
+  "accepted",
+  "superseded",
+  "proposed",
+  "applied",
+  "rejected",
+] as const;
+export type MeetingSummaryStatus = (typeof MEETING_SUMMARY_STATUSES)[number];
+
+export const MEETING_SUMMARY_KINDS = [
+  "recap",
+  "decision_log",
+  "action_items",
+  "document_proposal",
+  "reflection_input",
+] as const;
+export type MeetingSummaryKind = (typeof MEETING_SUMMARY_KINDS)[number];
+
 export const ENVIRONMENT_DRIVERS = ["local", "ssh", "sandbox", "plugin"] as const;
 export type EnvironmentDriver = (typeof ENVIRONMENT_DRIVERS)[number];
 

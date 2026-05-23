@@ -113,6 +113,19 @@ export type {
   ProjectWorkspace,
 } from "./project.js";
 export type {
+  AddMeetingParticipant,
+  CreateMeetingRoom,
+  CreateMeetingSummary,
+  MeetingMessage,
+  MeetingParticipant,
+  MeetingRoom,
+  MeetingRoomListQuery,
+  MeetingSummary,
+  PostMeetingMessage,
+  UpdateMeetingRoom,
+  UpdateMeetingSummary,
+} from "./meeting-room.js";
+export type {
   CompanySearchHighlight,
   CompanySearchIssueSummary,
   CompanySearchResponse,
