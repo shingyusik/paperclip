@@ -41,6 +41,31 @@ export interface AgentRuntimeConfig extends Record<string, unknown> {
   hermesProfile?: HermesProfileRuntimeBinding;
 }
 
+export interface AgentRuntimeSummarySkillChange {
+  name: string;
+  action: string;
+  at: string;
+}
+
+export type AgentRuntimeSummary =
+  | {
+      kind: "none";
+      lastReflectionAt: string | null;
+      recentSkillChanges: AgentRuntimeSummarySkillChange[];
+      warnings: string[];
+    }
+  | {
+      kind: "hermes_profile";
+      profileName: string;
+      memoryPolicy: HermesProfileMemoryPolicy;
+      skillPolicy: HermesProfileSkillPolicy;
+      selfImprovementPolicy: HermesProfileSelfImprovementPolicy;
+      visibilityPolicy: HermesProfileVisibilityPolicy;
+      lastReflectionAt: string | null;
+      recentSkillChanges: AgentRuntimeSummarySkillChange[];
+      warnings: string[];
+    };
+
 export type AgentInstructionsBundleMode = "managed" | "external";
 
 export interface AgentInstructionsFileSummary {

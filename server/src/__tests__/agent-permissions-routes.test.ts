@@ -384,6 +384,48 @@ describe.sequential("agent permission routes", () => {
     mockLogActivity.mockResolvedValue(undefined);
   });
 
+  it("returns a safe Hermes runtime summary for authenticated company members", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      ...baseAgent,
+      runtimeConfig: {
+        hermesProfile: {
+          kind: "hermes_profile",
+          profileName: "builder-runtime",
+          hermesHomePath: "/Users/operator/.hermes/profiles/builder-runtime",
+          workspacePath: "/Users/operator/workspaces/builder-runtime",
+          memoryPolicy: "summary_visible",
+          skillPolicy: "managed",
+          selfImprovementPolicy: "proposal_only",
+          visibilityPolicy: "summary_only",
+        },
+      },
+    });
+
+    const app = await createApp({
+      type: "board",
+      userId: "member-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/agents/${agentId}/runtime-summary`));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      kind: "hermes_profile",
+      profileName: "builder-runtime",
+      memoryPolicy: "summary_visible",
+      skillPolicy: "managed",
+      selfImprovementPolicy: "proposal_only",
+      visibilityPolicy: "summary_only",
+      lastReflectionAt: null,
+      recentSkillChanges: [],
+      warnings: [],
+    });
+    expect(JSON.stringify(res.body)).not.toContain("/Users/operator");
+  });
+
   it("redacts agent detail for authenticated company members without agent admin permission", async () => {
     mockAccessService.canUser.mockResolvedValue(false);
 

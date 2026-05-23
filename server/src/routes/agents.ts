@@ -99,6 +99,7 @@ import {
 import { getTelemetryClient } from "../telemetry.js";
 import { assertEnvironmentSelectionForCompany } from "./environment-selection.js";
 import { recoveryService } from "../services/recovery/service.js";
+import { agentRuntimeSummaryService } from "../services/agent-runtime-summary.js";
 
 const RUN_LOG_DEFAULT_LIMIT_BYTES = 256_000;
 const RUN_LOG_MAX_LIMIT_BYTES = 1024 * 1024;
@@ -172,6 +173,7 @@ export function agentRoutes(
     pluginWorkerManager: options.pluginWorkerManager,
   });
   const recovery = recoveryService(db, { enqueueWakeup: heartbeat.wakeup });
+  const runtimeSummaries = agentRuntimeSummaryService(db);
   const issueApprovalsSvc = issueApprovalService(db);
   const secretsSvc = secretService(db);
   const instructions = agentInstructionsService();
@@ -1791,6 +1793,17 @@ export function agentRoutes(
     });
 
     res.json(rows);
+  });
+
+  router.get("/agents/:id/runtime-summary", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+    assertCompanyAccess(req, agent.companyId);
+    res.json(runtimeSummaries.buildForAgent(agent));
   });
 
   router.get("/agents/:id", async (req, res) => {

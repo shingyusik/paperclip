@@ -315,6 +315,8 @@ export type {
   AgentDetail,
   AgentModelProfileConfig,
   AgentRuntimeConfig,
+  AgentRuntimeSummary,
+  AgentRuntimeSummarySkillChange,
   HermesProfileRuntimeBinding,
   HermesProfileMemoryPolicy,
   HermesProfileSkillPolicy,

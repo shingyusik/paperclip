@@ -77,6 +77,8 @@ export type {
   AgentModelProfileConfig,
   AgentPermissions,
   AgentRuntimeConfig,
+  AgentRuntimeSummary,
+  AgentRuntimeSummarySkillChange,
   HermesProfileRuntimeBinding,
   HermesProfileMemoryPolicy,
   HermesProfileSkillPolicy,
