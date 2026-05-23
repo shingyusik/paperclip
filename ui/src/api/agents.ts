@@ -7,6 +7,7 @@ import type {
   AdapterEnvironmentTestResult,
   AgentKeyCreated,
   AgentRuntimeState,
+  AgentRuntimeSummary,
   AgentTaskSession,
   AgentWakeupResponse,
   HeartbeatRun,
@@ -176,6 +177,8 @@ export const agentsApi = {
     api.delete<{ ok: true }>(agentPath(agentId, companyId, `/keys/${encodeURIComponent(keyId)}`)),
   runtimeState: (id: string, companyId?: string) =>
     api.get<AgentRuntimeState>(agentPath(id, companyId, "/runtime-state")),
+  runtimeSummary: (id: string, companyId?: string) =>
+    api.get<AgentRuntimeSummary>(agentPath(id, companyId, "/runtime-summary")),
   taskSessions: (id: string, companyId?: string) =>
     api.get<AgentTaskSession[]>(agentPath(id, companyId, "/task-sessions")),
   resetSession: (id: string, taskKey?: string | null, companyId?: string) =>

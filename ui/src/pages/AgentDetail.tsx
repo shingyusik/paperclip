@@ -85,6 +85,13 @@ import { Input } from "@/components/ui/input";
 import { AgentIcon, AgentIconPicker } from "../components/AgentIconPicker";
 import { RunTranscriptView, type TranscriptMode } from "../components/transcript/RunTranscriptView";
 import {
+  AGENT_DETAIL_TABS,
+  AgentRuntimeGrowthPanel,
+  canonicalAgentDetailTab,
+  parseAgentDetailView,
+  type AgentDetailView,
+} from "./agent-detail-runtime-growth";
+import {
   isUuidLike,
   type Agent,
   type AgentInstructionsBundle,
@@ -267,17 +274,6 @@ function scrollToContainerBottom(container: ScrollContainer, behavior: ScrollBeh
   }
 
   container.scrollTo({ top: container.scrollHeight, behavior });
-}
-
-type AgentDetailView = "dashboard" | "instructions" | "configuration" | "skills" | "runs" | "budget";
-
-function parseAgentDetailView(value: string | null): AgentDetailView {
-  if (value === "instructions" || value === "prompts") return "instructions";
-  if (value === "configure" || value === "configuration") return "configuration";
-  if (value === "skills") return "skills";
-  if (value === "budget") return "budget";
-  if (value === "runs") return value;
-  return "dashboard";
 }
 
 function usageNumber(usage: Record<string, unknown> | null, ...keys: string[]) {
@@ -678,6 +674,7 @@ export function AgentDetail() {
   const activeView = urlRunId ? "runs" as AgentDetailView : parseAgentDetailView(urlTab ?? null);
   const needsDashboardData = activeView === "dashboard";
   const needsRunData = activeView === "runs" || Boolean(urlRunId);
+  const needsRuntimeSummary = activeView === "memory" || activeView === "meetings" || activeView === "reflections" || activeView === "improvements";
   const shouldLoadHeartbeats = needsDashboardData || needsRunData;
   const [configDirty, setConfigDirty] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
@@ -709,6 +706,12 @@ export function AgentDetail() {
     queryKey: queryKeys.agents.runtimeState(resolvedAgentId ?? routeAgentRef),
     queryFn: () => agentsApi.runtimeState(resolvedAgentId!, resolvedCompanyId ?? undefined),
     enabled: Boolean(resolvedAgentId) && needsDashboardData,
+  });
+
+  const { data: runtimeSummary, isLoading: runtimeSummaryLoading, error: runtimeSummaryError } = useQuery({
+    queryKey: queryKeys.agents.runtimeSummary(resolvedAgentId ?? routeAgentRef),
+    queryFn: () => agentsApi.runtimeSummary(resolvedAgentId!, resolvedCompanyId ?? undefined),
+    enabled: Boolean(resolvedAgentId) && needsRuntimeSummary,
   });
 
   const { data: heartbeats } = useQuery({
@@ -785,18 +788,7 @@ export function AgentDetail() {
       }
       return;
     }
-    const canonicalTab =
-      activeView === "instructions"
-        ? "instructions"
-        : activeView === "configuration"
-          ? "configuration"
-          : activeView === "skills"
-            ? "skills"
-            : activeView === "runs"
-              ? "runs"
-              : activeView === "budget"
-                ? "budget"
-              : "dashboard";
+    const canonicalTab = canonicalAgentDetailTab(activeView);
     if (routeAgentRef !== canonicalAgentRef || urlTab !== canonicalTab) {
       navigate(`/agents/${canonicalAgentRef}/${canonicalTab}`, { replace: true });
       return;
@@ -1116,14 +1108,7 @@ export function AgentDetail() {
           onValueChange={(value) => navigate(`/agents/${canonicalAgentRef}/${value}`)}
         >
           <PageTabBar
-            items={[
-              { value: "dashboard", label: "Dashboard" },
-              { value: "instructions", label: "Instructions" },
-              { value: "skills", label: "Skills" },
-              { value: "configuration", label: "Configuration" },
-              { value: "runs", label: "Runs" },
-              { value: "budget", label: "Budget" },
-            ]}
+            items={AGENT_DETAIL_TABS}
             value={activeView}
             onValueChange={(value) => navigate(`/agents/${canonicalAgentRef}/${value}`)}
           />
@@ -1235,6 +1220,15 @@ export function AgentDetail() {
         <AgentSkillsTab
           agent={agent}
           companyId={resolvedCompanyId ?? undefined}
+        />
+      )}
+
+      {(activeView === "memory" || activeView === "meetings" || activeView === "reflections" || activeView === "improvements") && (
+        <AgentRuntimeGrowthPanel
+          view={activeView}
+          summary={runtimeSummary}
+          isLoading={runtimeSummaryLoading}
+          error={runtimeSummaryError}
         />
       )}
 
