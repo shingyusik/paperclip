@@ -54,6 +54,7 @@ export { documents } from "./documents.js";
 export { documentRevisions } from "./document_revisions.js";
 export { issueDocuments } from "./issue_documents.js";
 export { projectDocuments } from "./project_documents.js";
+export { meetingRooms, meetingParticipants, meetingMessages, meetingSummaries } from "./meeting_rooms.js";
 export { heartbeatRuns } from "./heartbeat_runs.js";
 export { heartbeatRunEvents } from "./heartbeat_run_events.js";
 export { heartbeatRunWatchdogDecisions } from "./heartbeat_run_watchdog_decisions.js";
