@@ -7,6 +7,8 @@ import {
   documents,
   issueDocuments,
   issues,
+  projectDocuments,
+  projects,
 } from "@paperclipai/db";
 import { ISSUE_CONTINUATION_SUMMARY_DOCUMENT_KEY } from "@paperclipai/shared";
 import {
@@ -37,9 +39,11 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
 
   afterEach(async () => {
     await db.delete(documentRevisions);
+    await db.delete(projectDocuments);
     await db.delete(issueDocuments);
     await db.delete(documents);
     await db.delete(issues);
+    await db.delete(projects);
     await db.delete(companies);
   });
 
@@ -192,5 +196,147 @@ describeEmbeddedPostgres("documentService system issue documents", () => {
       body: "# Agent replacement plan",
       lockedAt: null,
     }));
+  });
+
+  async function createProjectForDocuments() {
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    await db.insert(projects).values({
+      id: projectId,
+      companyId,
+      name: "Launch",
+      description: "Launch project",
+      status: "in_progress",
+    });
+
+    return { companyId, projectId };
+  }
+
+  it("creates, updates, lists, fetches, and restores project documents with revision history", async () => {
+    const { companyId, projectId } = await createProjectForDocuments();
+
+    const created = await svc.upsertProjectDocument({
+      projectId,
+      key: "roadmap",
+      title: "Roadmap",
+      format: "markdown",
+      body: "# Roadmap\n\n- Milestone 1",
+      createdByUserId: "board-user",
+    });
+
+    expect(created.created).toBe(true);
+    expect(created.document).toEqual(expect.objectContaining({
+      companyId,
+      projectId,
+      key: "roadmap",
+      body: "# Roadmap\n\n- Milestone 1",
+      latestRevisionNumber: 1,
+    }));
+
+    const updated = await svc.upsertProjectDocument({
+      projectId,
+      key: "roadmap",
+      title: "Roadmap",
+      format: "markdown",
+      body: "# Roadmap\n\n- Milestone 1\n- Milestone 2",
+      baseRevisionId: created.document.latestRevisionId,
+      createdByUserId: "board-user",
+    });
+
+    expect(updated.created).toBe(false);
+    expect(updated.document.latestRevisionNumber).toBe(2);
+
+    const listed = await svc.listProjectDocuments(projectId);
+    expect(listed).toEqual([
+      expect.objectContaining({
+        projectId,
+        key: "roadmap",
+        body: "# Roadmap\n\n- Milestone 1\n- Milestone 2",
+      }),
+    ]);
+
+    const fetched = await svc.getProjectDocumentByKey(projectId, "roadmap");
+    expect(fetched).toEqual(expect.objectContaining({
+      projectId,
+      key: "roadmap",
+      latestRevisionNumber: 2,
+    }));
+
+    const revisions = await svc.listProjectDocumentRevisions(projectId, "roadmap");
+    expect(revisions.map((revision) => revision.revisionNumber)).toEqual([2, 1]);
+
+    const restored = await svc.restoreProjectDocumentRevision({
+      projectId,
+      key: "roadmap",
+      revisionId: revisions[1]!.id,
+      createdByUserId: "board-user",
+    });
+
+    expect(restored.restoredFromRevisionNumber).toBe(1);
+    expect(restored.document).toEqual(expect.objectContaining({
+      body: "# Roadmap\n\n- Milestone 1",
+      latestRevisionNumber: 3,
+    }));
+  });
+
+  it("locks and unlocks project documents with the same conflict behavior as issue documents", async () => {
+    const { projectId } = await createProjectForDocuments();
+
+    const created = await svc.upsertProjectDocument({
+      projectId,
+      key: "decisions",
+      title: "Decisions",
+      format: "markdown",
+      body: "# Decisions",
+      createdByUserId: "board-user",
+    });
+
+    const locked = await svc.lockProjectDocument({
+      projectId,
+      key: "decisions",
+      lockedByUserId: "board-user",
+    });
+
+    expect(locked.changed).toBe(true);
+    expect(locked.document.lockedAt).toBeInstanceOf(Date);
+    expect(locked.document.lockedByUserId).toBe("board-user");
+
+    await expect(svc.upsertProjectDocument({
+      projectId,
+      key: "decisions",
+      title: "Decisions",
+      format: "markdown",
+      body: "# Updated decisions",
+      baseRevisionId: created.document.latestRevisionId,
+      createdByUserId: "board-user",
+    })).rejects.toMatchObject({
+      status: 409,
+      message: "Document is locked",
+    });
+
+    const unlocked = await svc.unlockProjectDocument(projectId, "decisions");
+    expect(unlocked.changed).toBe(true);
+    expect(unlocked.document.lockedAt).toBeNull();
+
+    const updated = await svc.upsertProjectDocument({
+      projectId,
+      key: "decisions",
+      title: "Decisions",
+      format: "markdown",
+      body: "# Updated decisions",
+      baseRevisionId: unlocked.document.latestRevisionId,
+      createdByUserId: "board-user",
+    });
+
+    expect(updated.created).toBe(false);
+    expect(updated.document.body).toBe("# Updated decisions");
   });
 });

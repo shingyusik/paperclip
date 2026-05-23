@@ -6,14 +6,17 @@ import {
   findWorkspaceCommandDefinition,
   isUuidLike,
   matchWorkspaceRuntimeServiceToCommand,
+  projectDocumentKeySchema,
+  restoreIssueDocumentRevisionSchema,
   updateProjectSchema,
   updateProjectWorkspaceSchema,
+  upsertIssueDocumentSchema,
   workspaceRuntimeControlTargetSchema,
 } from "@paperclipai/shared";
 import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } from "@paperclipai/shared";
 import { trackProjectCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
-import { projectService, logActivity, workspaceOperationService } from "../services/index.js";
+import { documentService, projectService, logActivity, workspaceOperationService } from "../services/index.js";
 import { conflict, forbidden } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import {
@@ -41,6 +44,7 @@ const SHARED_WORKSPACE_STOP_AND_RESTART_ACTIONS = new Set(["stop", "restart"]);
 export function projectRoutes(db: Db) {
   const router = Router();
   const svc = projectService(db);
+  const documentsSvc = documentService(db);
   const secretsSvc = secretService(db);
   const workspaceOperations = workspaceOperationService(db);
   const strictSecretsMode = process.env.PAPERCLIP_SECRETS_STRICT_MODE === "true";
@@ -242,6 +246,246 @@ export function projectRoutes(db: Db) {
 
     res.json(project);
   });
+
+  router.get("/projects/:id/documents", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const docs = await documentsSvc.listProjectDocuments(project.id);
+    res.json(docs);
+  });
+
+  router.get("/projects/:id/documents/:key", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+    if (!keyParsed.success) {
+      res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+      return;
+    }
+    const doc = await documentsSvc.getProjectDocumentByKey(project.id, keyParsed.data);
+    if (!doc) {
+      res.status(404).json({ error: "Document not found" });
+      return;
+    }
+    res.json(doc);
+  });
+
+  router.put("/projects/:id/documents/:key", validate(upsertIssueDocumentSchema), async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+    if (!keyParsed.success) {
+      res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const result = await documentsSvc.upsertProjectDocument({
+      projectId: project.id,
+      key: keyParsed.data,
+      title: req.body.title ?? null,
+      format: req.body.format,
+      body: req.body.body,
+      changeSummary: req.body.changeSummary ?? null,
+      baseRevisionId: req.body.baseRevisionId ?? null,
+      createdByAgentId: actor.agentId ?? null,
+      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      createdByRunId: actor.runId ?? null,
+    });
+
+    const doc = result.document;
+    await logActivity(db, {
+      companyId: project.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: result.created ? "project.document_created" : "project.document_updated",
+      entityType: "project",
+      entityId: project.id,
+      details: {
+        key: doc.key,
+        documentId: doc.id,
+        title: doc.title,
+        format: doc.format,
+        revisionNumber: doc.latestRevisionNumber,
+      },
+    });
+
+    res.status(result.created ? 201 : 200).json(doc);
+  });
+
+  router.post("/projects/:id/documents/:key/lock", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Board authentication required" });
+      return;
+    }
+    const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+    if (!keyParsed.success) {
+      res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const result = await documentsSvc.lockProjectDocument({
+      projectId: project.id,
+      key: keyParsed.data,
+      lockedByAgentId: actor.agentId ?? null,
+      lockedByUserId: actor.actorType === "user" ? actor.actorId : null,
+    });
+
+    if (result.changed) {
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "project.document_locked",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          key: result.document.key,
+          documentId: result.document.id,
+          title: result.document.title,
+          lockedAt: result.document.lockedAt,
+        },
+      });
+    }
+
+    res.json(result.document);
+  });
+
+  router.post("/projects/:id/documents/:key/unlock", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Board authentication required" });
+      return;
+    }
+    const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+    if (!keyParsed.success) {
+      res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const result = await documentsSvc.unlockProjectDocument(project.id, keyParsed.data);
+
+    if (result.changed) {
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "project.document_unlocked",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          key: result.document.key,
+          documentId: result.document.id,
+          title: result.document.title,
+        },
+      });
+    }
+
+    res.json(result.document);
+  });
+
+  router.get("/projects/:id/documents/:key/revisions", async (req, res) => {
+    const id = req.params.id as string;
+    const project = await svc.getById(id);
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    assertCompanyAccess(req, project.companyId);
+    const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+    if (!keyParsed.success) {
+      res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+      return;
+    }
+    const revisions = await documentsSvc.listProjectDocumentRevisions(project.id, keyParsed.data);
+    res.json(revisions);
+  });
+
+  router.post(
+    "/projects/:id/documents/:key/revisions/:revisionId/restore",
+    validate(restoreIssueDocumentRevisionSchema),
+    async (req, res) => {
+      const id = req.params.id as string;
+      const revisionId = req.params.revisionId as string;
+      const project = await svc.getById(id);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      assertCompanyAccess(req, project.companyId);
+      const keyParsed = projectDocumentKeySchema.safeParse(String(req.params.key ?? "").trim().toLowerCase());
+      if (!keyParsed.success) {
+        res.status(400).json({ error: "Invalid document key", details: keyParsed.error.issues });
+        return;
+      }
+
+      const actor = getActorInfo(req);
+      const result = await documentsSvc.restoreProjectDocumentRevision({
+        projectId: project.id,
+        key: keyParsed.data,
+        revisionId,
+        createdByAgentId: actor.agentId ?? null,
+        createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      });
+
+      await logActivity(db, {
+        companyId: project.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "project.document_restored",
+        entityType: "project",
+        entityId: project.id,
+        details: {
+          key: result.document.key,
+          documentId: result.document.id,
+          title: result.document.title,
+          restoredFromRevisionId: result.restoredFromRevisionId,
+          restoredFromRevisionNumber: result.restoredFromRevisionNumber,
+          revisionNumber: result.document.latestRevisionNumber,
+        },
+      });
+
+      res.json(result.document);
+    },
+  );
 
   router.get("/projects/:id/workspaces", async (req, res) => {
     const id = req.params.id as string;
