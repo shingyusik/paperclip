@@ -149,11 +149,13 @@ export {
   updateProjectWorkspaceSchema,
   projectExecutionWorkspacePolicySchema,
   projectWorkspaceRuntimeConfigSchema,
+  projectDocumentKeySchema,
   type CreateProject,
   type UpdateProject,
   type CreateProjectWorkspace,
   type UpdateProjectWorkspace,
   type ProjectExecutionWorkspacePolicy,
+  type ProjectDocumentKey,
 } from "./project.js";
 
 export {

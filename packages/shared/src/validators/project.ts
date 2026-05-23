@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROJECT_STATUSES } from "../constants.js";
+import { PROJECT_DOCUMENT_KEYS, PROJECT_STATUSES } from "../constants.js";
 import { envConfigSchema } from "./secret.js";
 
 const executionWorkspaceStrategySchema = z
@@ -34,6 +34,10 @@ export const projectWorkspaceRuntimeConfigSchema = z.object({
   desiredState: z.enum(["running", "stopped", "manual"]).optional().nullable(),
   serviceStates: z.record(z.enum(["running", "stopped", "manual"])).optional().nullable(),
 }).strict();
+
+export const projectDocumentKeySchema = z.enum(PROJECT_DOCUMENT_KEYS);
+
+export type ProjectDocumentKey = z.infer<typeof projectDocumentKeySchema>;
 
 const projectWorkspaceSourceTypeSchema = z.enum(["local_path", "git_repo", "remote_managed", "non_git_path"]);
 const projectWorkspaceVisibilitySchema = z.enum(["default", "advanced"]);

@@ -338,6 +338,17 @@ export const PROJECT_STATUSES = [
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+export const PROJECT_DOCUMENT_KEYS = [
+  "roadmap",
+  "spec",
+  "decisions",
+  "risks",
+  "metrics",
+  "launch-plan",
+  "retrospective",
+] as const;
+export type ProjectDocumentKey = (typeof PROJECT_DOCUMENT_KEYS)[number];
+
 export const ENVIRONMENT_DRIVERS = ["local", "ssh", "sandbox", "plugin"] as const;
 export type EnvironmentDriver = (typeof ENVIRONMENT_DRIVERS)[number];
 
