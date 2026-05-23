@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary } from "@paperclipai/shared";
+import {
+  PROJECT_COLORS,
+  PROJECT_DOCUMENT_KEYS,
+  isUuidLike,
+  type BudgetPolicySummary,
+  type ProjectDocument,
+  type ProjectDocumentKey,
+} from "@paperclipai/shared";
+import { ApiError } from "../api/client";
 import { budgetsApi } from "../api/budgets";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -30,10 +38,11 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
+import { FileText, Lock, Pencil, Plus, RotateCcw, Save, Unlock } from "lucide-react";
 
 /* ── Top-level tab types ── */
 
-type ProjectBaseTab = "overview" | "list" | "plugin-operations" | "workspaces" | "configuration" | "budget";
+type ProjectBaseTab = "overview" | "list" | "roadmap" | "documents" | "plugin-operations" | "workspaces" | "configuration" | "budget";
 type ProjectPluginTab = `plugin:${string}`;
 type ProjectTab = ProjectBaseTab | ProjectPluginTab;
 
@@ -47,12 +56,315 @@ function resolveProjectTab(pathname: string, projectId: string): ProjectTab | nu
   if (projectsIdx === -1 || segments[projectsIdx + 1] !== projectId) return null;
   const tab = segments[projectsIdx + 2];
   if (tab === "overview") return "overview";
+  if (tab === "roadmap") return "roadmap";
+  if (tab === "documents") return "documents";
   if (tab === "configuration") return "configuration";
   if (tab === "budget") return "budget";
   if (tab === "issues") return "list";
   if (tab === "plugin-operations") return "plugin-operations";
   if (tab === "workspaces") return "workspaces";
   return null;
+}
+
+const PROJECT_DOCUMENT_LABELS: Record<ProjectDocumentKey, string> = {
+  roadmap: "Roadmap",
+  spec: "Spec",
+  decisions: "Decisions",
+  risks: "Risks",
+  metrics: "Metrics",
+  "launch-plan": "Launch Plan",
+  retrospective: "Retrospective",
+};
+
+function getProjectDocumentLabel(key: string) {
+  return PROJECT_DOCUMENT_LABELS[key as ProjectDocumentKey] ?? key;
+}
+
+function isNotFoundError(error: unknown) {
+  return error instanceof ApiError && error.status === 404;
+}
+
+function ProjectDocumentEditor({
+  projectId,
+  companyId,
+  documentKey,
+  emptyBody,
+  emptyCtaLabel,
+  initialDocument,
+}: {
+  projectId: string;
+  companyId: string;
+  documentKey: ProjectDocumentKey;
+  emptyBody: string;
+  emptyCtaLabel: string;
+  initialDocument?: ProjectDocument | null;
+}) {
+  const queryClient = useQueryClient();
+  const label = getProjectDocumentLabel(documentKey);
+  const [draftBody, setDraftBody] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  const {
+    data: document,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.projects.document(projectId, documentKey),
+    queryFn: async () => {
+      try {
+        return await projectsApi.getDocument(projectId, documentKey, companyId);
+      } catch (err) {
+        if (isNotFoundError(err)) return null;
+        throw err;
+      }
+    },
+    enabled: !!projectId && !!companyId,
+    initialData: initialDocument,
+  });
+
+  useEffect(() => {
+    if (!document || isEditing) return;
+    setDraftBody(document.body);
+  }, [document, isEditing]);
+
+  const revisionsQuery = useQuery({
+    queryKey: queryKeys.projects.documentRevisions(projectId, documentKey),
+    queryFn: () => projectsApi.listDocumentRevisions(projectId, documentKey, companyId),
+    enabled: Boolean(document),
+  });
+
+  const invalidateDocuments = useCallback((nextDocument?: ProjectDocument | null) => {
+    if (nextDocument) {
+      queryClient.setQueryData(queryKeys.projects.document(projectId, documentKey), nextDocument);
+      queryClient.setQueryData<ProjectDocument[] | undefined>(
+        queryKeys.projects.documents(projectId),
+        (current) => {
+          if (!current) return [nextDocument];
+          const existingIndex = current.findIndex((entry) => entry.key === nextDocument.key);
+          if (existingIndex === -1) return [...current, nextDocument];
+          return current.map((entry, index) => index === existingIndex ? nextDocument : entry);
+        },
+      );
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects.documents(projectId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects.document(projectId, documentKey) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects.documentRevisions(projectId, documentKey) });
+  }, [documentKey, projectId, queryClient]);
+
+  const upsertDocument = useMutation({
+    mutationFn: (body: string) =>
+      projectsApi.upsertDocument(projectId, documentKey, {
+        title: label,
+        format: "markdown",
+        body,
+        baseRevisionId: document?.latestRevisionId ?? null,
+      }, companyId),
+    onSuccess: (nextDocument) => {
+      setDraftBody(nextDocument.body);
+      setIsEditing(false);
+      invalidateDocuments(nextDocument);
+    },
+  });
+
+  const lockDocument = useMutation({
+    mutationFn: () => projectsApi.lockDocument(projectId, documentKey, companyId),
+    onSuccess: (nextDocument) => invalidateDocuments(nextDocument),
+  });
+
+  const unlockDocument = useMutation({
+    mutationFn: () => projectsApi.unlockDocument(projectId, documentKey, companyId),
+    onSuccess: (nextDocument) => invalidateDocuments(nextDocument),
+  });
+
+  const restoreRevision = useMutation({
+    mutationFn: (revisionId: string) =>
+      projectsApi.restoreDocumentRevision(projectId, documentKey, revisionId, companyId),
+    onSuccess: (nextDocument) => {
+      setDraftBody(nextDocument.body);
+      setIsEditing(false);
+      invalidateDocuments(nextDocument);
+    },
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading {label.toLowerCase()}...</p>;
+  }
+
+  if (error) {
+    return <p className="text-sm text-destructive">{error.message}</p>;
+  }
+
+  if (!document) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-6">
+        <div className="flex items-start gap-3">
+          <FileText className="mt-0.5 h-5 w-5 text-muted-foreground" />
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold">{label}</h3>
+              <p className="text-sm text-muted-foreground">
+                Create this project document to give agents durable project context.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => upsertDocument.mutate(emptyBody)}
+              disabled={upsertDocument.isPending}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {emptyCtaLabel}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isLocked = Boolean(document.lockedAt);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">{document.title || label}</h3>
+          <p className="text-xs text-muted-foreground">
+            rev {document.latestRevisionNumber}
+            {isLocked ? " · locked" : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isLocked ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => unlockDocument.mutate()}>
+              <Unlock className="mr-2 h-4 w-4" />
+              Unlock
+            </Button>
+          ) : (
+            <>
+              <Button type="button" size="sm" variant="outline" onClick={() => setIsEditing((current) => !current)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                {isEditing ? "Cancel" : "Edit"}
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => lockDocument.mutate()}>
+                <Lock className="mr-2 h-4 w-4" />
+                Lock
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {isEditing && !isLocked ? (
+        <div className="space-y-3">
+          <textarea
+            aria-label={`${label} body`}
+            value={draftBody}
+            onChange={(event) => setDraftBody(event.target.value)}
+            className="min-h-[320px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <Button type="button" size="sm" onClick={() => upsertDocument.mutate(draftBody)} disabled={upsertDocument.isPending}>
+            <Save className="mr-2 h-4 w-4" />
+            Save
+          </Button>
+        </div>
+      ) : (
+        <pre className="min-h-[180px] whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-4 text-sm leading-6">
+          {document.body || "No content yet."}
+        </pre>
+      )}
+
+      {revisionsQuery.data && revisionsQuery.data.length > 0 ? (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Revisions</h4>
+          <div className="flex flex-wrap gap-2">
+            {revisionsQuery.data.map((revision) => (
+              <Button
+                key={revision.id}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={revision.id === document.latestRevisionId || restoreRevision.isPending || isLocked}
+                onClick={() => restoreRevision.mutate(revision.id)}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Restore rev {revision.revisionNumber}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectRoadmapContent({ projectId, companyId }: { projectId: string; companyId: string }) {
+  return (
+    <ProjectDocumentEditor
+      projectId={projectId}
+      companyId={companyId}
+      documentKey="roadmap"
+      emptyBody={"# Roadmap\n\n"}
+      emptyCtaLabel="Create roadmap"
+    />
+  );
+}
+
+function ProjectDocumentsContent({ projectId, companyId }: { projectId: string; companyId: string }) {
+  const { data: documents = [], isLoading, error } = useQuery({
+    queryKey: queryKeys.projects.documents(projectId),
+    queryFn: () => projectsApi.listDocuments(projectId, companyId),
+  });
+  const [selectedKey, setSelectedKey] = useState<ProjectDocumentKey>("roadmap");
+  const documentsByKey = useMemo(() => new Map(documents.map((document) => [document.key, document])), [documents]);
+
+  useEffect(() => {
+    if (documentsByKey.has(selectedKey)) return;
+    const firstDocument = documents[0];
+    if (firstDocument && PROJECT_DOCUMENT_KEYS.includes(firstDocument.key as ProjectDocumentKey)) {
+      setSelectedKey(firstDocument.key as ProjectDocumentKey);
+    }
+  }, [documents, documentsByKey, selectedKey]);
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading project documents...</p>;
+  }
+
+  if (error) {
+    return <p className="text-sm text-destructive">{error.message}</p>;
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="space-y-2">
+        {PROJECT_DOCUMENT_KEYS.map((key) => {
+          const document = documentsByKey.get(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSelectedKey(key)}
+              className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                selectedKey === key ? "border-foreground bg-muted" : "border-border hover:bg-muted/60"
+              }`}
+            >
+              <span className="block font-medium">{getProjectDocumentLabel(key)}</span>
+              <span className="block text-xs text-muted-foreground">
+                {document ? `rev ${document.latestRevisionNumber}` : "Not created"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <ProjectDocumentEditor
+        projectId={projectId}
+        companyId={companyId}
+        documentKey={selectedKey}
+        emptyBody={`# ${getProjectDocumentLabel(selectedKey)}\n\n`}
+        emptyCtaLabel={`Create ${getProjectDocumentLabel(selectedKey).toLowerCase()} document`}
+        initialDocument={documentsByKey.get(selectedKey) ?? null}
+      />
+    </div>
+  );
 }
 
 /* ── Overview tab content ── */
@@ -444,6 +756,14 @@ export function ProjectDetail() {
       navigate(`/projects/${canonicalProjectRef}/overview`, { replace: true });
       return;
     }
+    if (activeTab === "roadmap") {
+      navigate(`/projects/${canonicalProjectRef}/roadmap`, { replace: true });
+      return;
+    }
+    if (activeTab === "documents") {
+      navigate(`/projects/${canonicalProjectRef}/documents`, { replace: true });
+      return;
+    }
     if (activeTab === "configuration") {
       navigate(`/projects/${canonicalProjectRef}/configuration`, { replace: true });
       return;
@@ -583,6 +903,12 @@ export function ProjectDetail() {
     if (cachedTab === "overview") {
       return <Navigate to={`/projects/${canonicalProjectRef}/overview`} replace />;
     }
+    if (cachedTab === "roadmap") {
+      return <Navigate to={`/projects/${canonicalProjectRef}/roadmap`} replace />;
+    }
+    if (cachedTab === "documents") {
+      return <Navigate to={`/projects/${canonicalProjectRef}/documents`} replace />;
+    }
     if (cachedTab === "configuration") {
       return <Navigate to={`/projects/${canonicalProjectRef}/configuration`} replace />;
     }
@@ -619,6 +945,10 @@ export function ProjectDetail() {
     }
     if (tab === "overview") {
       navigate(`/projects/${canonicalProjectRef}/overview`);
+    } else if (tab === "roadmap") {
+      navigate(`/projects/${canonicalProjectRef}/roadmap`);
+    } else if (tab === "documents") {
+      navigate(`/projects/${canonicalProjectRef}/documents`);
     } else if (tab === "workspaces") {
       navigate(`/projects/${canonicalProjectRef}/workspaces`);
     } else if (tab === "budget") {
@@ -698,6 +1028,8 @@ export function ProjectDetail() {
         <PageTabBar
           items={[
             { value: "list", label: "Issues" },
+            { value: "roadmap", label: "Roadmap" },
+            { value: "documents", label: "Documents" },
             { value: "overview", label: "Overview" },
             ...(project.managedByPlugin ? [{ value: "plugin-operations", label: "Plugin operations" }] : []),
             ...(showWorkspacesTab ? [{ value: "workspaces", label: "Workspaces" }] : []),
@@ -727,6 +1059,14 @@ export function ProjectDetail() {
 
       {activeTab === "list" && project?.id && resolvedCompanyId && (
         <ProjectIssuesList projectId={project.id} companyId={resolvedCompanyId} />
+      )}
+
+      {activeTab === "roadmap" && project?.id && resolvedCompanyId && (
+        <ProjectRoadmapContent projectId={project.id} companyId={resolvedCompanyId} />
+      )}
+
+      {activeTab === "documents" && project?.id && resolvedCompanyId && (
+        <ProjectDocumentsContent projectId={project.id} companyId={resolvedCompanyId} />
       )}
 
       {activeTab === "plugin-operations" && project?.id && resolvedCompanyId && project.managedByPlugin && (

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROJECT_DOCUMENT_KEYS, PROJECT_STATUSES } from "../constants.js";
+import { upsertIssueDocumentSchema } from "./issue.js";
 import { envConfigSchema } from "./secret.js";
 
 const executionWorkspaceStrategySchema = z
@@ -36,8 +37,12 @@ export const projectWorkspaceRuntimeConfigSchema = z.object({
 }).strict();
 
 export const projectDocumentKeySchema = z.enum(PROJECT_DOCUMENT_KEYS);
+export const upsertProjectDocumentSchema = upsertIssueDocumentSchema;
+export const restoreProjectDocumentRevisionSchema = z.object({});
 
 export type ProjectDocumentKey = z.infer<typeof projectDocumentKeySchema>;
+export type UpsertProjectDocument = z.infer<typeof upsertProjectDocumentSchema>;
+export type RestoreProjectDocumentRevision = z.infer<typeof restoreProjectDocumentRevisionSchema>;
 
 const projectWorkspaceSourceTypeSchema = z.enum(["local_path", "git_repo", "remote_managed", "non_git_path"]);
 const projectWorkspaceVisibilitySchema = z.enum(["default", "advanced"]);

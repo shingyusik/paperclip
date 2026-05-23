@@ -1,6 +1,9 @@
 import type {
+  ProjectDocument,
+  ProjectDocumentRevision,
   Project,
   ProjectWorkspace,
+  UpsertProjectDocument,
   WorkspaceOperation,
   WorkspaceRuntimeControlTarget,
 } from "@paperclipai/shared";
@@ -57,5 +60,24 @@ export const projectsApi = {
     ),
   removeWorkspace: (projectId: string, workspaceId: string, companyId?: string) =>
     api.delete<ProjectWorkspace>(projectPath(projectId, companyId, `/workspaces/${encodeURIComponent(workspaceId)}`)),
+  listDocuments: (projectId: string, companyId?: string) =>
+    api.get<ProjectDocument[]>(projectPath(projectId, companyId, "/documents")),
+  getDocument: (projectId: string, key: string, companyId?: string) =>
+    api.get<ProjectDocument>(projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}`)),
+  upsertDocument: (projectId: string, key: string, data: UpsertProjectDocument, companyId?: string) =>
+    api.put<ProjectDocument>(projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}`), data),
+  lockDocument: (projectId: string, key: string, companyId?: string) =>
+    api.post<ProjectDocument>(projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}/lock`), {}),
+  unlockDocument: (projectId: string, key: string, companyId?: string) =>
+    api.post<ProjectDocument>(projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}/unlock`), {}),
+  listDocumentRevisions: (projectId: string, key: string, companyId?: string) =>
+    api.get<ProjectDocumentRevision[]>(
+      projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}/revisions`),
+    ),
+  restoreDocumentRevision: (projectId: string, key: string, revisionId: string, companyId?: string) =>
+    api.post<ProjectDocument>(
+      projectPath(projectId, companyId, `/documents/${encodeURIComponent(key)}/revisions/${encodeURIComponent(revisionId)}/restore`),
+      {},
+    ),
   remove: (id: string, companyId?: string) => api.delete<Project>(projectPath(id, companyId)),
 };

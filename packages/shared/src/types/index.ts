@@ -101,7 +101,17 @@ export type {
   AgentReflectionStatus,
 } from "./agent-reflection.js";
 export type { AssetImage } from "./asset.js";
-export type { Project, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, ProjectManagedByPlugin, ProjectWorkspace } from "./project.js";
+export type {
+  Project,
+  ProjectCodebase,
+  ProjectCodebaseOrigin,
+  ProjectDocument,
+  ProjectDocumentRevision,
+  ProjectDocumentSummary,
+  ProjectGoalRef,
+  ProjectManagedByPlugin,
+  ProjectWorkspace,
+} from "./project.js";
 export type {
   CompanySearchHighlight,
   CompanySearchIssueSummary,

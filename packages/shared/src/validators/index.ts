@@ -150,12 +150,16 @@ export {
   projectExecutionWorkspacePolicySchema,
   projectWorkspaceRuntimeConfigSchema,
   projectDocumentKeySchema,
+  upsertProjectDocumentSchema,
+  restoreProjectDocumentRevisionSchema,
   type CreateProject,
   type UpdateProject,
   type CreateProjectWorkspace,
   type UpdateProjectWorkspace,
   type ProjectExecutionWorkspacePolicy,
   type ProjectDocumentKey,
+  type UpsertProjectDocument,
+  type RestoreProjectDocumentRevision,
 } from "./project.js";
 
 export {

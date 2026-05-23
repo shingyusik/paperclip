@@ -5,6 +5,7 @@ import type {
   WorkspaceRuntimeService,
 } from "./workspace-runtime.js";
 import type { AgentEnvConfig } from "./secrets.js";
+import type { DocumentFormat } from "./issue.js";
 
 export type ProjectWorkspaceSourceType = "local_path" | "git_repo" | "remote_managed" | "non_git_path";
 export type ProjectWorkspaceVisibility = "default" | "advanced";
@@ -62,6 +63,46 @@ export interface ProjectManagedByPlugin {
   defaultsJson: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ProjectDocumentSummary {
+  id: string;
+  companyId: string;
+  projectId: string;
+  key: string;
+  title: string | null;
+  format: DocumentFormat;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  updatedByAgentId: string | null;
+  updatedByUserId: string | null;
+  lockedAt: Date | null;
+  lockedByAgentId: string | null;
+  lockedByUserId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProjectDocument extends ProjectDocumentSummary {
+  body: string;
+}
+
+export interface ProjectDocumentRevision {
+  id: string;
+  companyId: string;
+  documentId: string;
+  projectId: string;
+  key: string;
+  revisionNumber: number;
+  title: string | null;
+  format: DocumentFormat;
+  body: string;
+  changeSummary: string | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
 }
 
 export interface Project {
