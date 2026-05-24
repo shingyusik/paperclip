@@ -30,6 +30,7 @@ export { goalService } from "./goals.js";
 export { activityService, type ActivityFilters } from "./activity.js";
 export { approvalService } from "./approvals.js";
 export { governedChangeProposalService } from "./governed-change-proposals.js";
+export { governedChangeApprovalGateService } from "./governed-change-approval-gate.js";
 export { budgetService } from "./budgets.js";
 export { secretService } from "./secrets.js";
 export { routineService } from "./routines.js";
