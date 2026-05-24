@@ -51,4 +51,12 @@ export const createGovernedChangeProposalSchema = z.object({
   }
 });
 
+export const acceptGovernedChangeApplicationSchema = z.object({
+  issueId: z.string().uuid(),
+  changeType: governedChangeTypeSchema,
+  target: governedChangeProposalTargetSchema.optional(),
+  scope: governedChangeProposalScopeSchema.optional(),
+});
+
 export type CreateGovernedChangeProposal = z.infer<typeof createGovernedChangeProposalSchema>;
+export type AcceptGovernedChangeApplication = z.infer<typeof acceptGovernedChangeApplicationSchema>;

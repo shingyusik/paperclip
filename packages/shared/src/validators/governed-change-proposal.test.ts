@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as shared from "../index.js";
 import {
+  acceptGovernedChangeApplicationSchema,
   createGovernedChangeProposalSchema,
   governedChangeTypeSchema,
 } from "./index.js";
@@ -35,7 +36,35 @@ describe("governed change proposal validators", () => {
 
   it("exports the governed change validators from the shared root", () => {
     expect(shared.createGovernedChangeProposalSchema).toBe(createGovernedChangeProposalSchema);
+    expect(shared.acceptGovernedChangeApplicationSchema).toBe(acceptGovernedChangeApplicationSchema);
     expect(shared.governedChangeTypeSchema).toBe(governedChangeTypeSchema);
+  });
+
+  it("accepts a governed change application request", () => {
+    const parsed = acceptGovernedChangeApplicationSchema.parse({
+      issueId: "33333333-3333-4333-8333-333333333333",
+      changeType: "roadmap_change",
+      scope: "project",
+      target: { projectId },
+    });
+
+    expect(parsed).toEqual({
+      issueId: "33333333-3333-4333-8333-333333333333",
+      changeType: "roadmap_change",
+      scope: "project",
+      target: { projectId },
+    });
+  });
+
+  it("rejects invalid governed change application request change types", () => {
+    const result = acceptGovernedChangeApplicationSchema.safeParse({
+      issueId: "33333333-3333-4333-8333-333333333333",
+      changeType: "private_memory_change",
+      scope: "project",
+      target: { projectId },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("requires exactly one proposer", () => {

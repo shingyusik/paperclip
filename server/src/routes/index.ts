@@ -9,6 +9,7 @@ export { issueTreeControlRoutes } from "./issue-tree-control.js";
 export { routineRoutes } from "./routines.js";
 export { goalRoutes } from "./goals.js";
 export { approvalRoutes } from "./approvals.js";
+export { governedChangeApplicationRoutes } from "./governed-change-applications.js";
 export { governedChangeProposalRoutes } from "./governed-change-proposals.js";
 export { secretRoutes } from "./secrets.js";
 export { costRoutes } from "./costs.js";

@@ -26,3 +26,10 @@ export interface CreateGovernedChangeProposalRequest {
   proposalPayload: Record<string, unknown>;
   idempotencyKey?: string;
 }
+
+export interface AcceptGovernedChangeApplicationRequest {
+  issueId: string;
+  changeType: GovernedChangeType;
+  scope?: GovernedChangeProposalScope;
+  target?: GovernedChangeProposalTarget;
+}

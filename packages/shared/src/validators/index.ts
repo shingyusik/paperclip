@@ -320,10 +320,12 @@ export {
 } from "./approval.js";
 
 export {
+  acceptGovernedChangeApplicationSchema,
   createGovernedChangeProposalSchema,
   governedChangeProposalScopeSchema,
   governedChangeProposalTargetSchema,
   governedChangeTypeSchema,
+  type AcceptGovernedChangeApplication,
   type CreateGovernedChangeProposal,
 } from "./governed-change-proposal.js";
 

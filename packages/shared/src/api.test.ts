@@ -27,3 +27,10 @@ describe("API governed change proposal constants", () => {
       .toBe("/api/companies/:companyId/governed-change-proposals");
   });
 });
+
+describe("API governed change application constants", () => {
+  it("exposes the company-scoped accept path", () => {
+    expect(API.governedChangeApplications.accept)
+      .toBe("/api/companies/:companyId/governed-change-applications");
+  });
+});

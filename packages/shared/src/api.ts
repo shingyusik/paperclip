@@ -39,4 +39,7 @@ export const API = {
   governedChangeProposals: {
     create: `${API_PREFIX}/companies/:companyId/governed-change-proposals`,
   },
+  governedChangeApplications: {
+    accept: `${API_PREFIX}/companies/:companyId/governed-change-applications`,
+  },
 } as const;
