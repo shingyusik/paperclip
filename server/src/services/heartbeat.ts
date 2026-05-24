@@ -176,6 +176,7 @@ import {
   maybeRecordAgentRunReflection,
   readStructuredRunReflectionFromResultJson,
 } from "./agent-reflections.js";
+import { meetingRoomService } from "./meeting-rooms.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -228,6 +229,21 @@ export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [
   30 * 60 * 1000,
   2 * 60 * 60 * 1000,
 ] as const;
+
+export async function recordMeetingRoomAgentResponseForRun(input: {
+  db: Db;
+  run: typeof heartbeatRuns.$inferSelect;
+  onLog: (stream: "stderr", chunk: string) => Promise<void> | void;
+}) {
+  try {
+    await meetingRoomService(input.db).recordAgentRunResponseMessage(input.run);
+  } catch (err) {
+    await input.onLog(
+      "stderr",
+      `[paperclip] Failed to record meeting room agent response: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+}
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_JITTER_RATIO = 0.25;
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON = "transient_failure";
 const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON = "transient_failure_retry";
@@ -8033,6 +8049,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
             reflector: async ({ run: reflectionRun }) =>
               readStructuredRunReflectionFromResultJson(reflectionRun.resultJson),
           });
+          await recordMeetingRoomAgentResponseForRun({ db, run: livenessRun, onLog });
         }
         const skipRunIssueComment = parseObject(livenessRun.contextSnapshot).skipIssueComment === true;
         if (issueId && outcome === "succeeded" && !skipRunIssueComment) {

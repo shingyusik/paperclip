@@ -3,6 +3,7 @@ import type { Db } from "@paperclipai/db";
 import {
   agents,
   agentReflections,
+  heartbeatRuns,
   issues,
   meetingMessages,
   meetingParticipants,
@@ -21,6 +22,8 @@ import type {
   UpdateMeetingSummary,
 } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
+import { logActivity } from "./activity-log.js";
+import { redactSensitiveText, sanitizeRecord } from "../redaction.js";
 
 type DbClient = Db;
 
@@ -220,6 +223,39 @@ function roomStatusPatch(status: UpdateMeetingRoom["status"] | undefined, existi
     return { closedAt: existingClosedAt ?? now, archivedAt: now };
   }
   return {};
+}
+
+function readNonEmptyString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function buildMeetingAgentResponseMessageBody(resultJson: Record<string, unknown> | null | undefined) {
+  if (!resultJson || typeof resultJson !== "object" || Array.isArray(resultJson)) return null;
+  const body =
+    readNonEmptyString(resultJson.summary)
+    ?? readNonEmptyString(resultJson.result)
+    ?? readNonEmptyString(resultJson.outputSummary)
+    ?? readNonEmptyString(resultJson.message);
+  return body ? redactSensitiveText(body) : null;
+}
+
+function readMeetingRunContext(run: typeof heartbeatRuns.$inferSelect) {
+  const context = run.contextSnapshot;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const meetingRoomId = readNonEmptyString(context.meetingRoomId);
+  const meetingParticipantId = readNonEmptyString(context.meetingParticipantId);
+  if (!meetingRoomId || !meetingParticipantId) return null;
+  return { meetingRoomId, meetingParticipantId };
+}
+
+function readMeetingAgentResponseSource(resultJson: Record<string, unknown> | null | undefined) {
+  if (!resultJson || typeof resultJson !== "object" || Array.isArray(resultJson)) return null;
+  for (const key of ["summary", "result", "outputSummary", "message"] as const) {
+    if (readNonEmptyString(resultJson[key])) return key;
+  }
+  return null;
 }
 
 export function meetingRoomService(db: Db) {
@@ -507,6 +543,113 @@ export function meetingRoomService(db: Db) {
         }
         throw error;
       }
+    },
+
+    recordAgentRunResponseMessage: async (run: typeof heartbeatRuns.$inferSelect) => {
+      if (run.status !== "succeeded") return null;
+      const context = readMeetingRunContext(run);
+      if (!context) return null;
+      const body = buildMeetingAgentResponseMessageBody(run.resultJson);
+      if (!body) return null;
+
+      const resultSource = readMeetingAgentResponseSource(run.resultJson);
+      let created = false;
+      const message = await db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        await txDb.execute(sql`
+          select id
+          from ${meetingRooms}
+          where ${meetingRooms.id} = ${context.meetingRoomId}
+            and ${meetingRooms.companyId} = ${run.companyId}
+          for update
+        `);
+
+        const room = await getRoom(txDb, run.companyId, context.meetingRoomId);
+        if (!room || ROOM_STATUSES_BLOCKING_MESSAGES.has(room.status)) return null;
+
+        const existing = await txDb
+          .select()
+          .from(meetingMessages)
+          .where(and(eq(meetingMessages.companyId, run.companyId), eq(meetingMessages.sourceRunId, run.id)))
+          .then((rows) => rows[0] ?? null);
+        if (existing) return existing;
+
+        const participant = await txDb
+          .select()
+          .from(meetingParticipants)
+          .where(
+            and(
+              eq(meetingParticipants.id, context.meetingParticipantId),
+              eq(meetingParticipants.roomId, context.meetingRoomId),
+              eq(meetingParticipants.companyId, run.companyId),
+            ),
+          )
+          .then((rows) => rows[0] ?? null);
+        if (
+          !participant
+          || participant.participantType !== "agent"
+          || participant.agentId !== run.agentId
+          || participant.status === "left"
+          || participant.status === "disabled"
+        ) {
+          return null;
+        }
+
+        const [sequenceRow] = await txDb
+          .select({ nextSequence: sql<number>`coalesce(max(${meetingMessages.sequence}), 0) + 1` })
+          .from(meetingMessages)
+          .where(and(eq(meetingMessages.roomId, context.meetingRoomId), eq(meetingMessages.companyId, run.companyId)));
+        const sequence = Number(sequenceRow?.nextSequence ?? 1);
+        const metadata = sanitizeRecord({
+          source: "heartbeat_run",
+          sourceRunId: run.id,
+          resultSource,
+          runStatus: run.status,
+        });
+        const [inserted] = await txDb.insert(meetingMessages).values({
+          companyId: run.companyId,
+          roomId: context.meetingRoomId,
+          sequence,
+          messageType: "agent_response",
+          body,
+          format: "markdown",
+          authorAgentId: run.agentId,
+          authorParticipantId: context.meetingParticipantId,
+          sourceRunId: run.id,
+          metadata,
+        }).returning();
+
+        await txDb
+          .update(meetingRooms)
+          .set({
+            lastMessageId: inserted.id,
+            lastMessageAt: inserted.createdAt,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(meetingRooms.id, context.meetingRoomId), eq(meetingRooms.companyId, run.companyId)));
+        created = true;
+        return inserted;
+      });
+
+      if (created && message) {
+        await logActivity(db, {
+          companyId: run.companyId,
+          actorType: "agent",
+          actorId: run.agentId,
+          action: "meeting_room.agent_responded",
+          entityType: "meeting_room",
+          entityId: context.meetingRoomId,
+          agentId: run.agentId,
+          runId: run.id,
+          details: {
+            participantId: context.meetingParticipantId,
+            messageId: message.id,
+            sourceRunId: run.id,
+          },
+        });
+      }
+
+      return message;
     },
 
     createSummary: async (companyId: string, roomId: string, input: CreateMeetingSummary) => {

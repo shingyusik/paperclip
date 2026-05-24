@@ -1,9 +1,11 @@
 import { eq } from "drizzle-orm";
 import {
+  activityLog,
   agents,
   authUsers,
   companies,
   createDb,
+  heartbeatRuns,
   meetingMessages,
   meetingParticipants,
   meetingRooms,
@@ -178,6 +180,72 @@ describeEmbeddedPostgres("meetingRoomService", () => {
       body: "Closed by board",
     });
     expect(audit.sequence).toBe(3);
+  });
+
+  it("records a succeeded room-driven agent run as one redacted agent response message", async () => {
+    const svc = meetingRoomService(db);
+    const { room, participants } = await svc.create(companyId, {
+      title: "Agent response",
+      participants: [
+        {
+          participantType: "agent",
+          agentId,
+          role: "member",
+          status: "active",
+        },
+      ],
+    });
+    const participant = participants[0]!;
+    const [run] = await db.insert(heartbeatRuns).values({
+      companyId,
+      agentId,
+      status: "succeeded",
+      contextSnapshot: {
+        source: "meeting_room",
+        meetingRoomId: room.id,
+        meetingParticipantId: participant.id,
+      },
+      resultJson: {
+        summary: 'Completed the research. "api_key":"sk-test-secret"',
+        outputSummary: "Output fallback should not win.",
+      },
+    }).returning();
+
+    const recorded = await svc.recordAgentRunResponseMessage(run);
+    const duplicate = await svc.recordAgentRunResponseMessage(run);
+
+    expect(recorded).toEqual(expect.objectContaining({
+      companyId,
+      roomId: room.id,
+      messageType: "agent_response",
+      format: "markdown",
+      authorAgentId: agentId,
+      authorParticipantId: participant.id,
+      sourceRunId: run.id,
+    }));
+    expect(recorded?.body).toContain("Completed the research");
+    expect(recorded?.body).toContain("***REDACTED***");
+    expect(recorded?.body).not.toContain("sk-test-secret");
+    expect(duplicate?.id).toBe(recorded?.id);
+
+    const persistedMessages = await db.select().from(meetingMessages).where(eq(meetingMessages.sourceRunId, run.id));
+    expect(persistedMessages).toHaveLength(1);
+
+    const [updatedRoom] = await db.select().from(meetingRooms).where(eq(meetingRooms.id, room.id));
+    expect(updatedRoom.lastMessageId).toBe(recorded?.id);
+    expect(updatedRoom.lastMessageAt?.getTime()).toBe(recorded?.createdAt.getTime());
+
+    const activities = await db.select().from(activityLog).where(eq(activityLog.action, "meeting_room.agent_responded"));
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toEqual(expect.objectContaining({
+      companyId,
+      actorType: "agent",
+      actorId: agentId,
+      agentId,
+      runId: run.id,
+      entityType: "meeting_room",
+      entityId: room.id,
+    }));
   });
 
   it("marks participants left without hard deleting authored history", async () => {

@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { meetingRoomService } from "../services/meeting-rooms.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildMeetingAgentResponseMessageBody, meetingRoomService } from "../services/meeting-rooms.js";
+
+const mockLogActivity = vi.hoisted(() => vi.fn());
+
+vi.mock("../services/activity-log.js", () => ({
+  logActivity: mockLogActivity,
+}));
 
 function createServiceDbMock(options: {
   selectRows?: unknown[][];
@@ -11,6 +17,7 @@ function createServiceDbMock(options: {
   const updatePatches: Record<string, unknown>[] = [];
   const db: any = {
     transaction: vi.fn(async (fn) => fn(db)),
+    execute: vi.fn(() => Promise.resolve([])),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => Promise.resolve(selectRows.shift() ?? [])),
@@ -44,6 +51,20 @@ function createServiceDbMock(options: {
 }
 
 describe("meetingRoomService unit behavior", () => {
+  beforeEach(() => {
+    mockLogActivity.mockReset();
+  });
+
+  it("derives redacted meeting agent response bodies from run result fields in priority order", () => {
+    const derived = buildMeetingAgentResponseMessageBody({
+      outputSummary: "Output fallback",
+      message: "Message fallback",
+      summary: 'Final answer includes "api_key":"sk-test-secret"',
+    });
+
+    expect(derived).toBe('Final answer includes "api_key":"***REDACTED***"');
+  });
+
   it("rejects create requests with agent participants from another company before inserting", async () => {
     const { db } = createServiceDbMock({
       selectRows: [[]],
@@ -222,5 +243,121 @@ describe("meetingRoomService unit behavior", () => {
       updatedAt: expect.any(Date),
     }));
     expect(db.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an eligible run response as an agent_response transcript message", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00Z");
+    const { db, insertedValues, updatePatches } = createServiceDbMock({
+      selectRows: [
+        [{ id: "room-1", companyId: "company-1", status: "open" }],
+        [],
+        [{
+          id: "participant-1",
+          companyId: "company-1",
+          roomId: "room-1",
+          participantType: "agent",
+          agentId: "agent-1",
+          status: "active",
+        }],
+        [{ nextSequence: 4 }],
+      ],
+      insertResult: (values) => ({ id: "message-1", createdAt, ...(values as Record<string, unknown>) }),
+    });
+    const svc = meetingRoomService(db);
+
+    const message = await svc.recordAgentRunResponseMessage({
+      id: "run-1",
+      companyId: "company-1",
+      agentId: "agent-1",
+      status: "succeeded",
+      contextSnapshot: {
+        meetingRoomId: "room-1",
+        meetingParticipantId: "participant-1",
+      },
+      resultJson: {
+        result: 'Done with "token":"secret-value"',
+      },
+    } as any);
+
+    expect(message).toEqual(expect.objectContaining({
+      id: "message-1",
+      messageType: "agent_response",
+      format: "markdown",
+      sequence: 4,
+      body: 'Done with "token":"***REDACTED***"',
+      authorAgentId: "agent-1",
+      authorParticipantId: "participant-1",
+      sourceRunId: "run-1",
+    }));
+    expect(insertedValues[0]).toEqual(expect.objectContaining({
+      companyId: "company-1",
+      roomId: "room-1",
+      messageType: "agent_response",
+      sourceRunId: "run-1",
+    }));
+    expect(updatePatches[0]).toEqual(expect.objectContaining({
+      lastMessageId: "message-1",
+      lastMessageAt: createdAt,
+    }));
+    expect(mockLogActivity).toHaveBeenCalledWith(db, expect.objectContaining({
+      companyId: "company-1",
+      actorType: "agent",
+      actorId: "agent-1",
+      action: "meeting_room.agent_responded",
+      entityType: "meeting_room",
+      entityId: "room-1",
+      agentId: "agent-1",
+      runId: "run-1",
+    }));
+  });
+
+  it("skips ineligible or duplicate run response messages without inserting", async () => {
+    const baseRun = {
+      id: "run-1",
+      companyId: "company-1",
+      agentId: "agent-1",
+      status: "succeeded",
+      contextSnapshot: {
+        meetingRoomId: "room-1",
+        meetingParticipantId: "participant-1",
+      },
+      resultJson: { summary: "Done" },
+    } as any;
+
+    const failed = createServiceDbMock();
+    await expect(
+      meetingRoomService(failed.db).recordAgentRunResponseMessage({ ...baseRun, status: "failed" }),
+    ).resolves.toBeNull();
+    expect(failed.db.transaction).not.toHaveBeenCalled();
+
+    const noContext = createServiceDbMock();
+    await expect(
+      meetingRoomService(noContext.db).recordAgentRunResponseMessage({ ...baseRun, contextSnapshot: {} }),
+    ).resolves.toBeNull();
+    expect(noContext.db.transaction).not.toHaveBeenCalled();
+
+    const closedRoom = createServiceDbMock({
+      selectRows: [[{ id: "room-1", companyId: "company-1", status: "closed" }]],
+    });
+    await expect(meetingRoomService(closedRoom.db).recordAgentRunResponseMessage(baseRun)).resolves.toBeNull();
+    expect(closedRoom.db.insert).not.toHaveBeenCalled();
+
+    const existingMessage = { id: "message-1", sourceRunId: "run-1", roomId: "room-1" };
+    const duplicate = createServiceDbMock({
+      selectRows: [[{ id: "room-1", companyId: "company-1", status: "open" }], [existingMessage]],
+    });
+    await expect(meetingRoomService(duplicate.db).recordAgentRunResponseMessage(baseRun)).resolves.toBe(existingMessage);
+    expect(duplicate.db.insert).not.toHaveBeenCalled();
+
+    const mismatchedParticipant = createServiceDbMock({
+      selectRows: [
+        [{ id: "room-1", companyId: "company-1", status: "open" }],
+        [],
+        [{ id: "participant-1", participantType: "agent", agentId: "other-agent", status: "active" }],
+      ],
+    });
+    await expect(meetingRoomService(mismatchedParticipant.db).recordAgentRunResponseMessage(baseRun)).resolves.toBeNull();
+    expect(mismatchedParticipant.db.insert).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalled();
   });
 });
