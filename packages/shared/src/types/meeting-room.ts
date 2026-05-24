@@ -7,6 +7,7 @@ import type {
   MeetingRoomStatus,
   MeetingSummaryKind,
   MeetingSummaryStatus,
+  WakeupTriggerDetail,
 } from "../constants.js";
 
 export interface MeetingRoom {
@@ -149,6 +150,19 @@ export interface PostMeetingMessage {
   sourceSummaryId?: string | null;
   replyToMessageId?: string | null;
   metadata?: Record<string, unknown> | null;
+}
+
+export interface InvokeMeetingParticipant {
+  triggerDetail?: WakeupTriggerDetail;
+  reason?: string | null;
+  idempotencyKey?: string | null;
+  transcriptWindow?: {
+    limit?: number;
+    beforeMessageId?: string | null;
+    afterMessageId?: string | null;
+  };
+  lastMessageId?: string | null;
+  instruction?: string | null;
 }
 
 export interface CreateMeetingSummary {

@@ -10,6 +10,7 @@ describe("API meeting room constants", () => {
       update: "/api/companies/:companyId/meeting-rooms/:roomId",
       participants: "/api/companies/:companyId/meeting-rooms/:roomId/participants",
       participant: "/api/companies/:companyId/meeting-rooms/:roomId/participants/:participantId",
+      invokeParticipant: "/api/companies/:companyId/meeting-rooms/:roomId/participants/:participantId/invoke",
       messages: "/api/companies/:companyId/meeting-rooms/:roomId/messages",
       summaries: "/api/companies/:companyId/meeting-rooms/:roomId/summaries",
       summary: "/api/companies/:companyId/meeting-rooms/:roomId/summaries/:summaryId",

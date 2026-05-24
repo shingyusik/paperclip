@@ -116,6 +116,7 @@ export type {
   AddMeetingParticipant,
   CreateMeetingRoom,
   CreateMeetingSummary,
+  InvokeMeetingParticipant,
   MeetingMessage,
   MeetingParticipant,
   MeetingRoom,

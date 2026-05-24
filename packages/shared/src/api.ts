@@ -29,6 +29,7 @@ export const API = {
     update: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId`,
     participants: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/participants`,
     participant: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/participants/:participantId`,
+    invokeParticipant: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/participants/:participantId/invoke`,
     messages: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/messages`,
     summaries: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/summaries`,
     summary: `${API_PREFIX}/companies/:companyId/meeting-rooms/:roomId/summaries/:summaryId`,

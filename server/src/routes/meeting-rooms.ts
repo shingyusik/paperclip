@@ -5,15 +5,16 @@ import {
   addMeetingParticipantSchema,
   createMeetingRoomSchema,
   createMeetingSummarySchema,
+  invokeMeetingParticipantSchema,
   meetingRoomListQuerySchema,
   postMeetingMessageSchema,
   updateMeetingRoomSchema,
   updateMeetingSummarySchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { logActivity, meetingRoomService } from "../services/index.js";
-import { notFound } from "../errors.js";
-import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { accessService, heartbeatService, logActivity, meetingRoomService } from "../services/index.js";
+import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
+import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 const messageListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
@@ -27,6 +28,58 @@ function sortedChangedKeys(input: Record<string, unknown>) {
 export function meetingRoomRoutes(db: Db) {
   const router = Router();
   const svc = meetingRoomService(db);
+  const heartbeat = heartbeatService(db);
+  const access = accessService(db);
+
+  async function assertBoardCanManageAgentsForCompany(req: Parameters<typeof assertBoard>[0], companyId: string) {
+    assertBoard(req);
+    assertCompanyAccess(req, companyId);
+    if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return;
+    const allowed = await access.canUser(companyId, req.actor.userId, "agents:create");
+    if (!allowed) {
+      throw forbidden("Missing permission: agents:create");
+    }
+  }
+
+  function buildMeetingRoomWakePayload(
+    roomId: string,
+    participantId: string,
+    input: {
+      transcriptWindow?: Record<string, unknown>;
+      lastMessageId?: string | null;
+      instruction?: string | null;
+    },
+  ) {
+    return {
+      meetingRoomId: roomId,
+      meetingParticipantId: participantId,
+      ...(input.transcriptWindow !== undefined ? { transcriptWindow: input.transcriptWindow } : {}),
+      ...(input.lastMessageId ? { lastMessageId: input.lastMessageId } : {}),
+      ...(input.instruction ? { instruction: input.instruction } : {}),
+    };
+  }
+
+  function buildMeetingRoomContextSnapshot(
+    req: Parameters<typeof getActorInfo>[0],
+    room: {
+      id: string;
+      projectId?: string | null;
+      issueId?: string | null;
+      projectDocumentId?: string | null;
+    },
+    participantId: string,
+  ) {
+    return {
+      source: "meeting_room",
+      meetingRoomId: room.id,
+      meetingParticipantId: participantId,
+      ...(room.projectId ? { projectId: room.projectId } : {}),
+      ...(room.issueId ? { issueId: room.issueId } : {}),
+      ...(room.projectDocumentId ? { projectDocumentId: room.projectDocumentId } : {}),
+      triggeredBy: req.actor.type,
+      actorId: req.actor.type === "agent" ? req.actor.agentId : req.actor.userId,
+    };
+  }
 
   router.get("/companies/:companyId/meeting-rooms", async (req, res) => {
     const companyId = req.params.companyId as string;
@@ -160,6 +213,72 @@ export function meetingRoomRoutes(db: Db) {
     });
     res.json(participant);
   });
+
+  router.post(
+    "/companies/:companyId/meeting-rooms/:roomId/participants/:participantId/invoke",
+    validate(invokeMeetingParticipantSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      const roomId = req.params.roomId as string;
+      const participantId = req.params.participantId as string;
+      assertCompanyAccess(req, companyId);
+      await assertBoardCanManageAgentsForCompany(req, companyId);
+
+      const { room, participant } = await svc.resolveInvokableAgentParticipant(companyId, roomId, participantId);
+      if (participant.participantType !== "agent") {
+        throw unprocessable("Meeting participant invocation requires an agent participant");
+      }
+      if (!participant.agentId) {
+        throw unprocessable("Meeting participant invocation requires an agent id");
+      }
+      if ((room.status === "closed" || room.status === "paused" || room.status === "archived") && req.body.triggerDetail !== "system") {
+        throw conflict("Cannot invoke agents for closed, paused, or archived meeting rooms");
+      }
+
+      const run = await heartbeat.wakeup(participant.agentId, {
+        source: "on_demand",
+        triggerDetail: req.body.triggerDetail,
+        reason: req.body.reason ?? "Explicit meeting-room agent invocation",
+        payload: buildMeetingRoomWakePayload(roomId, participantId, req.body),
+        idempotencyKey: req.body.idempotencyKey ?? null,
+        requestedByActorType: "user",
+        requestedByActorId: req.actor.userId ?? null,
+        contextSnapshot: buildMeetingRoomContextSnapshot(req, room, participantId),
+      });
+
+      if (!run) {
+        res.status(202).json({
+          status: "skipped",
+          reason: "wakeup_skipped",
+          message: "Wakeup was skipped.",
+          meetingRoomId: roomId,
+          meetingParticipantId: participantId,
+          agentId: participant.agentId,
+        });
+        return;
+      }
+
+      await svc.recordParticipantInvocation(companyId, roomId, participantId, run.id);
+      const actor = getActorInfo(req);
+      await logActivity(db, {
+        companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "meeting_room.agent_invoked",
+        entityType: "meeting_room",
+        entityId: roomId,
+        details: {
+          participantId,
+          agentId: participant.agentId,
+          runId: run.id,
+          roomStatus: room.status,
+        },
+      });
+      res.status(202).json(run);
+    },
+  );
 
   router.get("/companies/:companyId/meeting-rooms/:roomId/messages", async (req, res) => {
     const companyId = req.params.companyId as string;

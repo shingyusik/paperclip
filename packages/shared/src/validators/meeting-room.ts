@@ -8,6 +8,7 @@ import {
   MEETING_ROOM_STATUSES,
   MEETING_SUMMARY_KINDS,
   MEETING_SUMMARY_STATUSES,
+  WAKEUP_TRIGGER_DETAILS,
 } from "../constants.js";
 
 const uuidSchema = z.string().uuid();
@@ -161,6 +162,22 @@ export const postMeetingMessageSchema = z
     metadata: metadataSchema,
   })
   .superRefine(validateMessageAuthor);
+
+export const invokeMeetingParticipantSchema = z.object({
+  triggerDetail: z.enum(WAKEUP_TRIGGER_DETAILS).optional().default("manual"),
+  reason: z.string().trim().min(1).max(500).optional().nullable(),
+  idempotencyKey: z.string().trim().min(1).max(500).optional().nullable(),
+  transcriptWindow: z
+    .object({
+      limit: z.number().int().min(1).max(100).optional(),
+      beforeMessageId: optionalUuidSchema,
+      afterMessageId: optionalUuidSchema,
+    })
+    .strict()
+    .optional(),
+  lastMessageId: optionalUuidSchema,
+  instruction: z.string().trim().min(1).max(8_000).optional().nullable(),
+});
 
 export const createMeetingSummarySchema = z.object({
   summaryKind: meetingSummaryKindSchema,

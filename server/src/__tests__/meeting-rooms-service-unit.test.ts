@@ -152,4 +152,75 @@ describe("meetingRoomService unit behavior", () => {
       lastMessageAt: createdAt,
     }));
   });
+
+  it("resolves only active agent participants inside the requested room and company", async () => {
+    const room = {
+      id: "room-1",
+      companyId: "company-1",
+      status: "open",
+      issueId: "issue-1",
+      projectId: "project-1",
+      projectDocumentId: "document-1",
+    };
+    const participant = {
+      id: "participant-1",
+      companyId: "company-1",
+      roomId: "room-1",
+      participantType: "agent",
+      agentId: "agent-1",
+      status: "invited",
+    };
+    const { db } = createServiceDbMock({
+      selectRows: [[room], [participant]],
+    });
+    const svc = meetingRoomService(db);
+
+    await expect(
+      svc.resolveInvokableAgentParticipant("company-1", "room-1", "participant-1"),
+    ).resolves.toEqual({ room, participant });
+  });
+
+  it("rejects non-agent, left, and missing-agent participants before invocation", async () => {
+    const room = { id: "room-1", companyId: "company-1", status: "open" };
+
+    await expect(
+      meetingRoomService(createServiceDbMock({
+        selectRows: [[room], [{ id: "participant-1", participantType: "user", status: "active", agentId: null }]],
+      }).db).resolveInvokableAgentParticipant("company-1", "room-1", "participant-1"),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: "Meeting participant invocation requires an agent participant",
+    });
+
+    await expect(
+      meetingRoomService(createServiceDbMock({
+        selectRows: [[room], [{ id: "participant-1", participantType: "agent", status: "left", agentId: "agent-1" }]],
+      }).db).resolveInvokableAgentParticipant("company-1", "room-1", "participant-1"),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: "Cannot invoke a participant that has left or is disabled",
+    });
+
+    await expect(
+      meetingRoomService(createServiceDbMock({
+        selectRows: [[room], [{ id: "participant-1", participantType: "agent", status: "active", agentId: null }]],
+      }).db).resolveInvokableAgentParticipant("company-1", "room-1", "participant-1"),
+    ).rejects.toMatchObject({
+      status: 422,
+      message: "Meeting participant invocation requires an agent id",
+    });
+  });
+
+  it("updates participant invocation bookkeeping only for the requested room and company", async () => {
+    const { db, updatePatches } = createServiceDbMock();
+    const svc = meetingRoomService(db);
+
+    await svc.recordParticipantInvocation("company-1", "room-1", "participant-1", "run-1");
+
+    expect(updatePatches[0]).toEqual(expect.objectContaining({
+      lastInvokedRunId: "run-1",
+      updatedAt: expect.any(Date),
+    }));
+    expect(db.update).toHaveBeenCalledTimes(1);
+  });
 });

@@ -371,6 +371,56 @@ export function meetingRoomService(db: Db) {
       }
     },
 
+    resolveInvokableAgentParticipant: async (companyId: string, roomId: string, participantId: string) => {
+      const room = await getRoom(db, companyId, roomId);
+      if (!room) throw notFound("Meeting room not found");
+      const participant = await db
+        .select()
+        .from(meetingParticipants)
+        .where(
+          and(
+            eq(meetingParticipants.id, participantId),
+            eq(meetingParticipants.roomId, roomId),
+            eq(meetingParticipants.companyId, companyId),
+          ),
+        )
+        .then((rows) => rows[0] ?? null);
+      if (!participant) throw notFound("Meeting participant not found");
+      if (participant.participantType !== "agent") {
+        throw unprocessable("Meeting participant invocation requires an agent participant");
+      }
+      if (!participant.agentId) {
+        throw unprocessable("Meeting participant invocation requires an agent id");
+      }
+      if (participant.status === "left" || participant.status === "disabled") {
+        throw unprocessable("Cannot invoke a participant that has left or is disabled");
+      }
+      return { room, participant };
+    },
+
+    recordParticipantInvocation: async (
+      companyId: string,
+      roomId: string,
+      participantId: string,
+      runId: string,
+    ) => {
+      const now = new Date();
+      await db
+        .update(meetingParticipants)
+        .set({
+          lastInvokedRunId: runId,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(meetingParticipants.id, participantId),
+            eq(meetingParticipants.roomId, roomId),
+            eq(meetingParticipants.companyId, companyId),
+          ),
+        )
+        .returning();
+    },
+
     removeParticipant: async (companyId: string, roomId: string, participantId: string) => {
       const now = new Date();
       const [participant] = await db

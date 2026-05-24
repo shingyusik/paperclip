@@ -176,6 +176,7 @@ export {
   updateMeetingRoomSchema,
   addMeetingParticipantSchema,
   postMeetingMessageSchema,
+  invokeMeetingParticipantSchema,
   createMeetingSummarySchema,
   updateMeetingSummarySchema,
 } from "./meeting-room.js";

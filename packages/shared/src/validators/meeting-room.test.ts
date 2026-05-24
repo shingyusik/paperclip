@@ -53,6 +53,7 @@ describe("meeting room shared exports", () => {
       "updateMeetingRoomSchema",
       "addMeetingParticipantSchema",
       "postMeetingMessageSchema",
+      "invokeMeetingParticipantSchema",
       "createMeetingSummarySchema",
       "updateMeetingSummarySchema",
     ]) {
@@ -219,6 +220,36 @@ describe("meeting room payload schemas", () => {
         body: "",
       }).success,
     ).toBe(false);
+  });
+
+  it("validates explicit meeting participant invocation payloads", () => {
+    expect(
+      validatorExports.invokeMeetingParticipantSchema.parse({
+        reason: "  Please respond to the latest blocker.  ",
+        idempotencyKey: "room-invoke-1",
+        transcriptWindow: { limit: 12, beforeMessageId: uuid },
+        lastMessageId: otherUuid,
+        instruction: "Focus on release risk.",
+      }),
+    ).toEqual({
+      triggerDetail: "manual",
+      reason: "Please respond to the latest blocker.",
+      idempotencyKey: "room-invoke-1",
+      transcriptWindow: { limit: 12, beforeMessageId: uuid },
+      lastMessageId: otherUuid,
+      instruction: "Focus on release risk.",
+    });
+
+    expect(validatorExports.invokeMeetingParticipantSchema.parse({})).toEqual({
+      triggerDetail: "manual",
+    });
+    expect(validatorExports.invokeMeetingParticipantSchema.safeParse({ reason: "" }).success).toBe(false);
+    expect(validatorExports.invokeMeetingParticipantSchema.safeParse({ triggerDetail: "timer" }).success).toBe(false);
+    expect(validatorExports.invokeMeetingParticipantSchema.safeParse({ transcriptWindow: { limit: 0 } }).success)
+      .toBe(false);
+    expect(validatorExports.invokeMeetingParticipantSchema.safeParse({ lastMessageId: "not-a-uuid" }).success).toBe(
+      false,
+    );
   });
 
   it("validates create and update summary payloads", () => {

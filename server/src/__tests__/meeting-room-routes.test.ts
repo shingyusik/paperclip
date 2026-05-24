@@ -9,6 +9,10 @@ const participantId = "44444444-4444-4444-8444-444444444444";
 const messageId = "55555555-5555-4555-8555-555555555555";
 const summaryId = "66666666-6666-4666-8666-666666666666";
 const agentId = "77777777-7777-4777-8777-777777777777";
+const runId = "88888888-8888-4888-8888-888888888888";
+const projectId = "99999999-9999-4999-8999-999999999998";
+const issueId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const projectDocumentId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const mockMeetingRoomService = vi.hoisted(() => ({
   list: vi.fn(),
@@ -21,11 +25,21 @@ const mockMeetingRoomService = vi.hoisted(() => ({
   postMessage: vi.fn(),
   createSummary: vi.fn(),
   updateSummary: vi.fn(),
+  resolveInvokableAgentParticipant: vi.fn(),
+  recordParticipantInvocation: vi.fn(),
 }));
 const mockLogActivity = vi.hoisted(() => vi.fn());
+const mockHeartbeatService = vi.hoisted(() => ({
+  wakeup: vi.fn(),
+}));
+const mockAccessService = vi.hoisted(() => ({
+  canUser: vi.fn(),
+}));
 
 function registerModuleMocks() {
   vi.doMock("../services/index.js", () => ({
+    accessService: () => mockAccessService,
+    heartbeatService: () => mockHeartbeatService,
     logActivity: mockLogActivity,
     meetingRoomService: () => mockMeetingRoomService,
   }));
@@ -170,6 +184,32 @@ describe("meeting room routes", () => {
       summaryKind: "recap",
       status: "accepted",
     });
+    mockMeetingRoomService.resolveInvokableAgentParticipant.mockResolvedValue({
+      room: {
+        id: roomId,
+        companyId,
+        status: "open",
+        projectId,
+        issueId,
+        projectDocumentId,
+      },
+      participant: {
+        id: participantId,
+        roomId,
+        companyId,
+        participantType: "agent",
+        agentId,
+        status: "invited",
+      },
+    });
+    mockMeetingRoomService.recordParticipantInvocation.mockResolvedValue(undefined);
+    mockHeartbeatService.wakeup.mockResolvedValue({
+      id: runId,
+      companyId,
+      agentId,
+      status: "queued",
+    });
+    mockAccessService.canUser.mockResolvedValue(true);
   });
 
   it("lists rooms with validated query filters and enforces company access", async () => {
@@ -385,6 +425,162 @@ describe("meeting room routes", () => {
         entityId: roomId,
       }),
     );
+  });
+
+  it("explicitly invokes an agent participant with meeting-room context and logs bookkeeping", async () => {
+    const res = await injectJson(
+      await createApp(),
+      "POST",
+      `/api/companies/${companyId}/meeting-rooms/${roomId}/participants/${participantId}/invoke`,
+      {
+        reason: "Please respond with the release risk.",
+        idempotencyKey: "room-invoke-1",
+        transcriptWindow: { limit: 8 },
+        lastMessageId: messageId,
+        instruction: "Focus on blockers.",
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual(expect.objectContaining({ id: runId, status: "queued" }));
+    expect(mockMeetingRoomService.resolveInvokableAgentParticipant).toHaveBeenCalledWith(
+      companyId,
+      roomId,
+      participantId,
+    );
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(agentId, {
+      source: "on_demand",
+      triggerDetail: "manual",
+      reason: "Please respond with the release risk.",
+      idempotencyKey: "room-invoke-1",
+      requestedByActorType: "user",
+      requestedByActorId: "board-user",
+      payload: {
+        meetingRoomId: roomId,
+        meetingParticipantId: participantId,
+        transcriptWindow: { limit: 8 },
+        lastMessageId: messageId,
+        instruction: "Focus on blockers.",
+      },
+      contextSnapshot: {
+        source: "meeting_room",
+        meetingRoomId: roomId,
+        meetingParticipantId: participantId,
+        projectId,
+        issueId,
+        projectDocumentId,
+        triggeredBy: "board",
+        actorId: "board-user",
+      },
+    });
+    expect(mockMeetingRoomService.recordParticipantInvocation).toHaveBeenCalledWith(
+      companyId,
+      roomId,
+      participantId,
+      runId,
+    );
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        companyId,
+        action: "meeting_room.agent_invoked",
+        entityType: "meeting_room",
+        entityId: roomId,
+        details: expect.objectContaining({
+          participantId,
+          agentId,
+          runId,
+        }),
+      }),
+    );
+  });
+
+  it("defaults the explicit participant invocation reason and returns skipped responses without bookkeeping", async () => {
+    mockHeartbeatService.wakeup.mockResolvedValueOnce(null);
+
+    const res = await injectJson(
+      await createApp(),
+      "POST",
+      `/api/companies/${companyId}/meeting-rooms/${roomId}/participants/${participantId}/invoke`,
+      {},
+    );
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({
+      status: "skipped",
+      reason: "wakeup_skipped",
+      message: "Wakeup was skipped.",
+      meetingRoomId: roomId,
+      meetingParticipantId: participantId,
+      agentId,
+    });
+    expect(mockHeartbeatService.wakeup).toHaveBeenCalledWith(agentId, expect.objectContaining({
+      reason: "Explicit meeting-room agent invocation",
+      triggerDetail: "manual",
+      payload: {
+        meetingRoomId: roomId,
+        meetingParticipantId: participantId,
+      },
+    }));
+    expect(mockMeetingRoomService.recordParticipantInvocation).not.toHaveBeenCalled();
+    expect(mockLogActivity).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "meeting_room.agent_invoked" }),
+    );
+  });
+
+  it("requires board manage-agent permission for explicit participant invocation", async () => {
+    mockAccessService.canUser.mockResolvedValueOnce(false);
+    const app = await createApp({
+      type: "board",
+      userId: "member-user",
+      companyIds: [companyId],
+      memberships: [{ companyId, membershipRole: "member", status: "active" }],
+      source: "session",
+      isInstanceAdmin: false,
+    });
+
+    const res = await injectJson(
+      app,
+      "POST",
+      `/api/companies/${companyId}/meeting-rooms/${roomId}/participants/${participantId}/invoke`,
+      {},
+    );
+
+    expect(res.status).toBe(403);
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+  });
+
+  it("rejects explicit participant invocation for inactive rooms and invalid participants before wakeup", async () => {
+    mockMeetingRoomService.resolveInvokableAgentParticipant.mockResolvedValueOnce({
+      room: { id: roomId, companyId, status: "closed" },
+      participant: { id: participantId, participantType: "agent", agentId, status: "active" },
+    });
+
+    const closedRes = await injectJson(
+      await createApp(),
+      "POST",
+      `/api/companies/${companyId}/meeting-rooms/${roomId}/participants/${participantId}/invoke`,
+      {},
+    );
+
+    expect(closedRes.status).toBe(409);
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
+
+    mockMeetingRoomService.resolveInvokableAgentParticipant.mockResolvedValueOnce({
+      room: { id: roomId, companyId, status: "open" },
+      participant: { id: participantId, participantType: "user", userId: "board-user", status: "active" },
+    });
+
+    const userRes = await injectJson(
+      await createApp(),
+      "POST",
+      `/api/companies/${companyId}/meeting-rooms/${roomId}/participants/${participantId}/invoke`,
+      {},
+    );
+
+    expect(userRes.status).toBe(422);
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
   });
 
   it("denies board users without access to the requested company", async () => {
