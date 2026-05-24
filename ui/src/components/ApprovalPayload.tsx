@@ -6,6 +6,7 @@ export const typeLabel: Record<string, string> = {
   approve_ceo_strategy: "CEO Strategy",
   budget_override_required: "Budget Override",
   request_board_approval: "Board Approval",
+  governed_change: "Governed Change",
 };
 
 function firstNonEmptyString(...values: unknown[]): string | null {
@@ -41,6 +42,7 @@ export const typeIcon: Record<string, typeof UserPlus> = {
   approve_ceo_strategy: Lightbulb,
   budget_override_required: ShieldAlert,
   request_board_approval: ShieldCheck,
+  governed_change: ShieldCheck,
 };
 
 export const defaultTypeIcon = ShieldCheck;
@@ -53,6 +55,21 @@ function PayloadField({ label, value }: { label: string; value: unknown }) {
       <span>{String(value)}</span>
     </div>
   );
+}
+
+function JsonPayloadBlock({ value }: { value: unknown }) {
+  return (
+    <pre className="max-h-48 overflow-auto rounded-lg border border-border/60 bg-muted/50 px-3.5 py-3 font-mono text-xs leading-5 text-muted-foreground">
+      <code>{JSON.stringify(value, null, 2)}</code>
+    </pre>
+  );
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
 }
 
 function SkillList({ values }: { values: unknown }) {
@@ -161,6 +178,48 @@ export function BoardApprovalPayload({
   );
 }
 
+export function GovernedChangePayload({ payload }: { payload: Record<string, unknown> }) {
+  const target = objectValue(payload.target);
+  const summary = firstNonEmptyString(payload.summary);
+  const rationale = firstNonEmptyString(payload.rationale);
+
+  return (
+    <div className="mt-3 space-y-3 text-sm">
+      <div className="space-y-1.5">
+        <PayloadField label="Change type" value={payload.changeType} />
+        <PayloadField label="Scope" value={payload.scope} />
+        <PayloadField label="Proposal issue" value={payload.issueId} />
+        <PayloadField label="Project" value={target.projectId} />
+        <PayloadField label="Issue" value={target.issueId} />
+        <PayloadField label="Project document" value={target.projectDocumentId} />
+        <PayloadField label="Agent" value={target.agentId} />
+        <PayloadField label="Meeting room" value={target.meetingRoomId} />
+        <PayloadField label="Meeting summary" value={target.meetingSummaryId} />
+      </div>
+      {summary && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Summary</p>
+          <p className="leading-6 text-foreground/90">{summary}</p>
+        </div>
+      )}
+      {rationale && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Rationale</p>
+          <p className="leading-6 text-foreground/90">{rationale}</p>
+        </div>
+      )}
+      {"proposalPayload" in payload && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Proposal payload
+          </p>
+          <JsonPayloadBlock value={payload.proposalPayload} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BoardApprovalPayloadContent({ payload }: { payload: Record<string, unknown> }) {
   const risks = Array.isArray(payload.risks)
     ? payload.risks
@@ -240,6 +299,7 @@ export function ApprovalPayloadRenderer({
 }) {
   if (type === "hire_agent") return <HireAgentPayload payload={payload} />;
   if (type === "budget_override_required") return <BudgetOverridePayload payload={payload} />;
+  if (type === "governed_change") return <GovernedChangePayload payload={payload} />;
   if (type === "request_board_approval") {
     return <BoardApprovalPayload payload={payload} hideTitle={hidePrimaryTitle} />;
   }
