@@ -208,6 +208,7 @@ export const ISSUE_ORIGIN_KINDS = [
   "harness_liveness_escalation",
   "issue_productivity_review",
   "stranded_issue_recovery",
+  "governed_change_proposal",
 ] as const;
 export type BuiltInIssueOriginKind = (typeof ISSUE_ORIGIN_KINDS)[number];
 export type PluginIssueOriginKind = `plugin:${string}`;
@@ -464,8 +465,27 @@ export const APPROVAL_TYPES = [
   "approve_ceo_strategy",
   "budget_override_required",
   "request_board_approval",
+  "governed_change",
 ] as const;
 export type ApprovalType = (typeof APPROVAL_TYPES)[number];
+
+export const GOVERNED_CHANGE_TYPES = [
+  "roadmap_change",
+  "milestone_task_structure_change",
+  "shared_project_rule_change",
+  "organization_skill_template_change",
+  "agent_role_reporting_change",
+  "project_document_change",
+  "meeting_summary_change",
+] as const;
+export type GovernedChangeType = (typeof GOVERNED_CHANGE_TYPES)[number];
+
+export const GOVERNED_CHANGE_PROPOSAL_SCOPES = [
+  "company",
+  "organization",
+  "project",
+] as const;
+export type GovernedChangeProposalScope = (typeof GOVERNED_CHANGE_PROPOSAL_SCOPES)[number];
 
 export const APPROVAL_STATUSES = [
   "pending",

@@ -275,6 +275,12 @@ export type {
 export type { Goal } from "./goal.js";
 export type { Approval, ApprovalComment } from "./approval.js";
 export type {
+  CreateGovernedChangeProposalRequest,
+  GovernedChangeProposalScope,
+  GovernedChangeProposalTarget,
+  GovernedChangeType,
+} from "./governed-change-proposal.js";
+export type {
   BudgetPolicy,
   BudgetPolicySummary,
   BudgetIncident,

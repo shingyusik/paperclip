@@ -36,4 +36,7 @@ export const API = {
     issueMeetingRooms: `${API_PREFIX}/companies/:companyId/issues/:issueId/meeting-rooms`,
     projectDocumentMeetingRooms: `${API_PREFIX}/companies/:companyId/projects/:projectId/documents/:documentId/meeting-rooms`,
   },
+  governedChangeProposals: {
+    create: `${API_PREFIX}/companies/:companyId/governed-change-proposals`,
+  },
 } as const;

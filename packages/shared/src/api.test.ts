@@ -20,3 +20,10 @@ describe("API meeting room constants", () => {
     });
   });
 });
+
+describe("API governed change proposal constants", () => {
+  it("exposes the company-scoped create path", () => {
+    expect(API.governedChangeProposals.create)
+      .toBe("/api/companies/:companyId/governed-change-proposals");
+  });
+});

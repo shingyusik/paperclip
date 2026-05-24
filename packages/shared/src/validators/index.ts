@@ -320,6 +320,14 @@ export {
 } from "./approval.js";
 
 export {
+  createGovernedChangeProposalSchema,
+  governedChangeProposalScopeSchema,
+  governedChangeProposalTargetSchema,
+  governedChangeTypeSchema,
+  type CreateGovernedChangeProposal,
+} from "./governed-change-proposal.js";
+
+export {
   envBindingPlainSchema,
   envBindingSecretRefSchema,
   envBindingSchema,
