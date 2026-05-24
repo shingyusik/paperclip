@@ -3,13 +3,16 @@
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { MeetingRoom } from "@paperclipai/shared";
+import type { MeetingMessage, MeetingParticipant, MeetingRoom } from "@paperclipai/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MeetingRooms } from "./MeetingRooms";
 
 const mockMeetingRoomsApi = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
+  get: vi.fn(),
+  listMessages: vi.fn(),
+  invokeParticipant: vi.fn(),
 }));
 
 const mockNavigate = vi.hoisted(() => vi.fn());
@@ -85,6 +88,52 @@ function makeRoom(overrides: Partial<MeetingRoom> = {}): MeetingRoom {
   };
 }
 
+function makeParticipant(overrides: Partial<MeetingParticipant> = {}): MeetingParticipant {
+  return {
+    id: "participant-1",
+    companyId: "company-1",
+    roomId: "room-1",
+    participantType: "agent",
+    userId: null,
+    agentId: "agent-1",
+    teamId: null,
+    role: "member",
+    status: "active",
+    invitedByUserId: null,
+    invitedByAgentId: null,
+    lastSeenMessageId: null,
+    lastInvokedRunId: null,
+    joinedAt: new Date("2026-05-01T12:00:00Z"),
+    leftAt: null,
+    createdAt: new Date("2026-05-01T12:00:00Z"),
+    updatedAt: new Date("2026-05-01T12:00:00Z"),
+    ...overrides,
+  };
+}
+
+function makeMessage(overrides: Partial<MeetingMessage> = {}): MeetingMessage {
+  return {
+    id: "message-1",
+    companyId: "company-1",
+    roomId: "room-1",
+    sequence: 1,
+    messageType: "user",
+    body: "Please evaluate the launch risks.",
+    format: "markdown",
+    authorUserId: "user-1",
+    authorAgentId: null,
+    authorParticipantId: null,
+    sourceRunId: null,
+    sourceSummaryId: null,
+    replyToMessageId: null,
+    metadata: null,
+    editedAt: null,
+    deletedAt: null,
+    createdAt: new Date("2026-05-01T12:05:00Z"),
+    ...overrides,
+  };
+}
+
 async function flushReact() {
   await act(async () => {
     await Promise.resolve();
@@ -135,6 +184,13 @@ describe("MeetingRooms", () => {
       }),
     ]);
     mockMeetingRoomsApi.create.mockResolvedValue({ room: makeRoom(), participants: [] });
+    mockMeetingRoomsApi.get.mockResolvedValue({
+      room: makeRoom(),
+      participants: [],
+      latestSummary: null,
+    });
+    mockMeetingRoomsApi.listMessages.mockResolvedValue([]);
+    mockMeetingRoomsApi.invokeParticipant.mockResolvedValue({ id: "run-1" });
   });
 
   afterEach(async () => {
@@ -213,5 +269,147 @@ describe("MeetingRooms", () => {
     });
 
     expect(mockNavigate).toHaveBeenCalledWith("/meeting-rooms/all");
+  });
+
+  it("opens room details with participant invoke status and recent agent responses", async () => {
+    mockMeetingRoomsApi.get.mockResolvedValue({
+      room: makeRoom(),
+      participants: [
+        makeParticipant({
+          id: "participant-active",
+          agentId: "agent-active",
+          status: "active",
+          lastInvokedRunId: "run-previous",
+        }),
+        makeParticipant({
+          id: "participant-disabled",
+          agentId: "agent-disabled",
+          status: "disabled",
+        }),
+      ],
+      latestSummary: null,
+    });
+    mockMeetingRoomsApi.listMessages.mockResolvedValue([
+      makeMessage({
+        id: "message-response",
+        messageType: "agent_response" as MeetingMessage["messageType"],
+        body: "Launch risks: payment onboarding and unclear trial limits.",
+        authorAgentId: "agent-active",
+        authorParticipantId: "participant-active",
+        sourceRunId: "run-previous",
+      }),
+    ]);
+
+    root = await renderMeetingRooms(container, queryClient);
+
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Details",
+    );
+    expect(detailsButton).not.toBeUndefined();
+
+    await act(async () => {
+      detailsButton!.click();
+    });
+    await flushReact();
+
+    expect(mockMeetingRoomsApi.get).toHaveBeenCalledWith("company-1", "room-1");
+    expect(mockMeetingRoomsApi.listMessages).toHaveBeenCalledWith("company-1", "room-1", { limit: 10 });
+    expect(container.textContent).toContain("Agent participants");
+    expect(container.textContent).toContain("participant-active");
+    expect(container.textContent).toContain("Agent agent-active");
+    expect(container.textContent).toContain("Status active");
+    expect(container.textContent).toContain("Last run run-previous");
+    expect(container.textContent).toContain("participant-disabled");
+    expect(container.textContent).toContain("Status disabled");
+    expect(container.textContent).toContain("Not invoked yet");
+    expect(container.textContent).toContain("Recent messages");
+    expect(container.textContent).toContain("Agent response");
+    expect(container.textContent).toContain("Run run-previous");
+    expect(container.textContent).toContain("Launch risks: payment onboarding and unclear trial limits.");
+  });
+
+  it("invokes active agent participants and refreshes room detail, messages, and room list", async () => {
+    mockMeetingRoomsApi.get
+      .mockResolvedValueOnce({
+        room: makeRoom(),
+        participants: [makeParticipant({ id: "participant-active", agentId: "agent-active", status: "active" })],
+        latestSummary: null,
+      })
+      .mockResolvedValueOnce({
+        room: makeRoom({ lastMessageAt: new Date("2026-05-02T12:00:00Z") }),
+        participants: [
+          makeParticipant({
+            id: "participant-active",
+            agentId: "agent-active",
+            status: "active",
+            lastInvokedRunId: "run-new",
+          }),
+        ],
+        latestSummary: null,
+      });
+    mockMeetingRoomsApi.listMessages
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeMessage({
+          messageType: "agent_response" as MeetingMessage["messageType"],
+          body: "I found two launch risks.",
+          authorAgentId: "agent-active",
+          authorParticipantId: "participant-active",
+          sourceRunId: "run-new",
+        }),
+      ]);
+    mockMeetingRoomsApi.list
+      .mockResolvedValueOnce([makeRoom()])
+      .mockResolvedValueOnce([makeRoom({ lastMessageAt: new Date("2026-05-02T12:00:00Z") })]);
+    let resolveInvoke: (value: unknown) => void = () => {};
+    const invokePromise = new Promise((resolve) => {
+      resolveInvoke = resolve;
+    });
+    mockMeetingRoomsApi.invokeParticipant.mockReturnValueOnce(invokePromise);
+
+    root = await renderMeetingRooms(container, queryClient);
+
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Details",
+    );
+    expect(detailsButton).not.toBeUndefined();
+
+    await act(async () => {
+      detailsButton!.click();
+    });
+    await flushReact();
+
+    const invokeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Invoke",
+    );
+    expect(invokeButton).not.toBeUndefined();
+    expect(invokeButton!.disabled).toBe(false);
+
+    await act(async () => {
+      invokeButton!.click();
+    });
+    await flushReact();
+    expect(invokeButton!.disabled).toBe(true);
+    expect(invokeButton!.textContent).toBe("Invoking...");
+
+    await act(async () => {
+      resolveInvoke({ id: "run-new" });
+      await invokePromise;
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(mockMeetingRoomsApi.invokeParticipant).toHaveBeenCalledWith(
+      "company-1",
+      "room-1",
+      "participant-active",
+      { reason: "Explicit meeting-room agent invocation" },
+    );
+    expect(mockMeetingRoomsApi.get).toHaveBeenCalledTimes(2);
+    expect(mockMeetingRoomsApi.listMessages).toHaveBeenCalledTimes(2);
+    expect(mockMeetingRoomsApi.list).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Last run run-new");
+    expect(container.textContent).toContain("Run run-new");
+    expect(container.textContent).toContain("I found two launch risks.");
   });
 });

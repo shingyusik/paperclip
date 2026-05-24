@@ -3,6 +3,7 @@ import {
   type AddMeetingParticipant,
   type CreateMeetingRoom,
   type CreateMeetingSummary,
+  type InvokeMeetingParticipant,
   type MeetingMessage,
   type MeetingParticipant,
   type MeetingRoom,
@@ -80,6 +81,16 @@ export const meetingRoomsApi = {
     api.post<MeetingParticipant>(fillPath(API.meetingRooms.participants, { companyId, roomId }), data),
   removeParticipant: (companyId: string, roomId: string, participantId: string) =>
     api.delete<MeetingParticipant>(fillPath(API.meetingRooms.participant, { companyId, roomId, participantId })),
+  invokeParticipant: (
+    companyId: string,
+    roomId: string,
+    participantId: string,
+    data: InvokeMeetingParticipant = {},
+  ) =>
+    api.post<unknown>(
+      fillPath(API.meetingRooms.invokeParticipant, { companyId, roomId, participantId }),
+      data,
+    ),
   listMessages: (companyId: string, roomId: string, options?: ListMeetingMessagesOptions | null) =>
     api.get<MeetingMessage[]>(
       appendQuery(fillPath(API.meetingRooms.messages, { companyId, roomId }), options),

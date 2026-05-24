@@ -46,6 +46,9 @@ describe("meetingRoomsApi", () => {
     await meetingRoomsApi.update("company-1", "room/1", { status: "closed" });
     await meetingRoomsApi.addParticipant("company-1", "room/1", { participantType: "agent", agentId: "agent-1" });
     await meetingRoomsApi.removeParticipant("company-1", "room/1", "participant/1");
+    await meetingRoomsApi.invokeParticipant("company-1", "room/1", "participant/1", {
+      reason: "Ask for launch risks",
+    });
     await meetingRoomsApi.listMessages("company-1", "room/1", { limit: 10, offset: null });
     await meetingRoomsApi.postMessage("company-1", "room/1", { messageType: "system", body: "Noted." });
     await meetingRoomsApi.createSummary("company-1", "room/1", { summaryKind: "recap", body: "Decision log" });
@@ -62,17 +65,22 @@ describe("meetingRoomsApi", () => {
     expect(mockApi.delete).toHaveBeenCalledWith(
       "/companies/company-1/meeting-rooms/room%2F1/participants/participant%2F1",
     );
+    expect(mockApi.post).toHaveBeenNthCalledWith(
+      3,
+      "/companies/company-1/meeting-rooms/room%2F1/participants/participant%2F1/invoke",
+      { reason: "Ask for launch risks" },
+    );
     expect(mockApi.get).toHaveBeenNthCalledWith(
       2,
       "/companies/company-1/meeting-rooms/room%2F1/messages?limit=10",
     );
     expect(mockApi.post).toHaveBeenNthCalledWith(
-      3,
+      4,
       "/companies/company-1/meeting-rooms/room%2F1/messages",
       { messageType: "system", body: "Noted." },
     );
     expect(mockApi.post).toHaveBeenNthCalledWith(
-      4,
+      5,
       "/companies/company-1/meeting-rooms/room%2F1/summaries",
       { summaryKind: "recap", body: "Decision log" },
     );
