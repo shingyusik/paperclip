@@ -125,7 +125,14 @@ describeEmbeddedPostgres("governed change application route", () => {
         proposedByAgentId: input.agentId,
         proposalPayload: {
           roadmapItems: ["Onboarding polish", "Beta"],
-          projectPatch: { description: "Changed by canonical mutation" },
+          projectPatch: {
+            name: "Launch v2",
+            description: "Changed by canonical mutation",
+            status: "in_progress",
+            targetDate: "2026-08-15",
+            color: "#14b8a6",
+            leadAgentId: input.agentId,
+          },
         },
         idempotencyKey: randomUUID(),
       },
@@ -143,7 +150,7 @@ describeEmbeddedPostgres("governed change application route", () => {
       ));
   }
 
-  it("returns 200 for an approved matching governed change application without canonical side effects", async () => {
+  it("returns 200 and applies project metadata for an approved roadmap projectPatch", async () => {
     const { companyId, projectId, agentId } = await seedCompany();
     const proposal = await createProposal({ companyId, projectId, agentId });
     await approvalService(db).approve(proposal.approval.id, "board-user", "approved");
@@ -160,7 +167,7 @@ describeEmbeddedPostgres("governed change application route", () => {
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toMatchObject({
-      canonicalSideEffects: false,
+      canonicalSideEffects: true,
       issue: { id: proposal.issue.id },
       approval: { id: proposal.approval.id, status: "approved" },
       activity: {
@@ -173,8 +180,15 @@ describeEmbeddedPostgres("governed change application route", () => {
           changeType: "roadmap_change",
           scope: "project",
           target: { projectId },
-          dryRun: true,
-          canonicalSideEffects: false,
+          dryRun: false,
+          canonicalSideEffects: true,
+          appliedProjectPatch: {
+            name: "Launch v2",
+            description: "Changed by canonical mutation",
+            status: "in_progress",
+            targetDate: "2026-08-15",
+            color: "#14b8a6",
+          },
         },
       },
     });
@@ -188,9 +202,12 @@ describeEmbeddedPostgres("governed change application route", () => {
       .where(eq(projects.id, projectId))
       .then((rows) => rows[0]);
     expect(storedProject).toMatchObject({
-      name: "Launch",
-      description: "Original project description",
-      status: "planned",
+      name: "Launch v2",
+      description: "Changed by canonical mutation",
+      status: "in_progress",
+      targetDate: "2026-08-15",
+      color: "#14b8a6",
+      leadAgentId: null,
     });
   });
 

@@ -94,6 +94,7 @@ describeEmbeddedPostgres("governed change application", () => {
     changeType?: "roadmap_change" | "milestone_task_structure_change" | "shared_project_rule_change";
     scope?: "company" | "organization" | "project";
     target?: { projectId?: string; issueId?: string; agentId?: string };
+    proposalPayload?: Record<string, unknown>;
   }) {
     return governedChangeProposalService(db).create(
       input.companyId,
@@ -104,9 +105,16 @@ describeEmbeddedPostgres("governed change application", () => {
         scope: input.scope ?? "project",
         target: input.target ?? { projectId: input.projectId },
         proposedByAgentId: input.agentId,
-        proposalPayload: {
+        proposalPayload: input.proposalPayload ?? {
           roadmapItems: ["Onboarding polish", "Beta"],
-          projectPatch: { description: "Changed by canonical mutation" },
+          projectPatch: {
+            name: "Launch v2",
+            description: "Changed by canonical mutation",
+            status: "in_progress",
+            targetDate: "2026-08-15",
+            color: "#14b8a6",
+            leadAgentId: input.agentId,
+          },
         },
         idempotencyKey: randomUUID(),
       },
@@ -142,9 +150,93 @@ describeEmbeddedPostgres("governed change application", () => {
     await expect(findApplicationActivity(companyId)).resolves.toHaveLength(0);
   });
 
-  it("accepts an approved matching proposal and writes one application activity without canonical side effects", async () => {
+  it("applies an approved roadmap projectPatch and records canonical side effects", async () => {
     const { companyId, projectId, agentId } = await seedCompany();
     const proposal = await createProposal({ companyId, projectId, agentId });
+    await approvalService(db).approve(proposal.approval.id, "board-user", "approved");
+
+    const result = await governedChangeApplicationService(db).acceptApprovedApplication(
+      companyId,
+      {
+        issueId: proposal.issue.id,
+        changeType: "roadmap_change",
+        scope: "project",
+        target: { projectId },
+      },
+      { actorType: "agent", actorId: agentId, agentId, runId: null },
+    );
+
+    expect(result).toMatchObject({
+      canonicalSideEffects: true,
+      issue: { id: proposal.issue.id },
+      approval: { id: proposal.approval.id, status: "approved" },
+    });
+    expect(result.activity).toMatchObject({
+      action: "governed_change_application.accepted",
+      entityType: "issue",
+      entityId: proposal.issue.id,
+      details: {
+        approvalId: proposal.approval.id,
+        issueId: proposal.issue.id,
+        changeType: "roadmap_change",
+        scope: "project",
+        target: { projectId },
+        dryRun: false,
+        canonicalSideEffects: true,
+        appliedProjectPatch: {
+          name: "Launch v2",
+          description: "Changed by canonical mutation",
+          status: "in_progress",
+          targetDate: "2026-08-15",
+          color: "#14b8a6",
+        },
+      },
+    });
+
+    const applicationActivities = await findApplicationActivity(companyId);
+    expect(applicationActivities).toHaveLength(1);
+    expect(applicationActivities[0].details).toMatchObject({
+      approvalId: proposal.approval.id,
+      issueId: proposal.issue.id,
+      changeType: "roadmap_change",
+      scope: "project",
+      target: { projectId },
+      dryRun: false,
+      canonicalSideEffects: true,
+      appliedProjectPatch: {
+        name: "Launch v2",
+        description: "Changed by canonical mutation",
+        status: "in_progress",
+        targetDate: "2026-08-15",
+        color: "#14b8a6",
+      },
+    });
+
+    const storedProject = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .then((rows) => rows[0]);
+    expect(storedProject).toMatchObject({
+      name: "Launch v2",
+      description: "Changed by canonical mutation",
+      status: "in_progress",
+      targetDate: "2026-08-15",
+      color: "#14b8a6",
+      leadAgentId: null,
+    });
+  });
+
+  it("keeps an approved governed change without supported projectPatch as no-side-effect", async () => {
+    const { companyId, projectId, agentId } = await seedCompany();
+    const proposal = await createProposal({
+      companyId,
+      projectId,
+      agentId,
+      proposalPayload: {
+        roadmapItems: ["Onboarding polish", "Beta"],
+      },
+    });
     await approvalService(db).approve(proposal.approval.id, "board-user", "approved");
 
     const result = await governedChangeApplicationService(db).acceptApprovedApplication(
@@ -162,20 +254,6 @@ describeEmbeddedPostgres("governed change application", () => {
       canonicalSideEffects: false,
       issue: { id: proposal.issue.id },
       approval: { id: proposal.approval.id, status: "approved" },
-    });
-    expect(result.activity).toMatchObject({
-      action: "governed_change_application.accepted",
-      entityType: "issue",
-      entityId: proposal.issue.id,
-      details: {
-        approvalId: proposal.approval.id,
-        issueId: proposal.issue.id,
-        changeType: "roadmap_change",
-        scope: "project",
-        target: { projectId },
-        dryRun: true,
-        canonicalSideEffects: false,
-      },
     });
 
     const applicationActivities = await findApplicationActivity(companyId);
