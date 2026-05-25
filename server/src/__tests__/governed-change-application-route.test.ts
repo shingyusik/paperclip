@@ -211,6 +211,72 @@ describeEmbeddedPostgres("governed change application route", () => {
     });
   });
 
+  it("returns explicit idempotency details for a duplicate accepted projectPatch", async () => {
+    const { companyId, projectId, agentId } = await seedCompany();
+    const proposal = await createProposal({ companyId, projectId, agentId });
+    await approvalService(db).approve(proposal.approval.id, "board-user", "approved");
+    const app = createApp(companyId);
+    const payload = {
+      issueId: proposal.issue.id,
+      changeType: "roadmap_change",
+      scope: "project",
+      target: { projectId },
+    };
+
+    const firstRes = await request(app)
+      .post(`/api/companies/${companyId}/governed-change-applications`)
+      .send(payload);
+    expect(firstRes.status, JSON.stringify(firstRes.body)).toBe(200);
+    expect(firstRes.body.canonicalSideEffects).toBe(true);
+
+    await db
+      .update(projects)
+      .set({
+        name: "Manual operator edit",
+        description: "Changed after first canonical application",
+        status: "planned",
+      })
+      .where(eq(projects.id, projectId));
+
+    const secondRes = await request(app)
+      .post(`/api/companies/${companyId}/governed-change-applications`)
+      .send(payload);
+
+    expect(secondRes.status, JSON.stringify(secondRes.body)).toBe(200);
+    expect(secondRes.body).toMatchObject({
+      canonicalSideEffects: false,
+      issue: { id: proposal.issue.id },
+      approval: { id: proposal.approval.id, status: "approved" },
+      activity: {
+        action: "governed_change_application.accepted",
+        entityType: "issue",
+        entityId: proposal.issue.id,
+        details: {
+          approvalId: proposal.approval.id,
+          issueId: proposal.issue.id,
+          changeType: "roadmap_change",
+          scope: "project",
+          target: { projectId },
+          alreadyApplied: true,
+          previousActivityId: firstRes.body.activity.id,
+          dryRun: true,
+          canonicalSideEffects: false,
+        },
+      },
+    });
+
+    const storedProject = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .then((rows) => rows[0]);
+    expect(storedProject).toMatchObject({
+      name: "Manual operator edit",
+      description: "Changed after first canonical application",
+      status: "planned",
+    });
+  });
+
   it("returns 422 for a pending governed change and records no application activity", async () => {
     const { companyId, projectId, agentId } = await seedCompany();
     const proposal = await createProposal({ companyId, projectId, agentId });

@@ -1,5 +1,5 @@
 import type { Db } from "@paperclipai/db";
-import { projects } from "@paperclipai/db";
+import { activityLog, projects } from "@paperclipai/db";
 import type {
   GovernedChangeProposalScope,
   GovernedChangeProposalTarget,
@@ -66,6 +66,41 @@ function hasPatchEntries(projectPatch: SafeProjectPatch) {
   return Object.keys(projectPatch).length > 0;
 }
 
+function sortedJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(sortedJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${sortedJson(entryValue)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function detailsMatchApplication(
+  details: Record<string, unknown> | null | undefined,
+  input: {
+    approvalId: string;
+    issueId: string;
+    changeType: GovernedChangeType;
+    scope: GovernedChangeProposalScope | null;
+    target: GovernedChangeProposalTarget;
+  },
+) {
+  if (!details) return false;
+  return (
+    details.approvalId === input.approvalId &&
+    details.issueId === input.issueId &&
+    details.changeType === input.changeType &&
+    details.scope === input.scope &&
+    sortedJson(details.target ?? {}) === sortedJson(input.target) &&
+    details.canonicalSideEffects === true
+  );
+}
+
 export function governedChangeApplicationService(db: Db) {
   const approvalGate = governedChangeApprovalGateService(db);
 
@@ -77,6 +112,8 @@ export function governedChangeApplicationService(db: Db) {
     const { issue, approval } = await approvalGate.assertApproved(companyId, input);
     let canonicalSideEffects = false;
     let appliedProjectPatch: SafeProjectPatch | null = null;
+    let alreadyApplied = false;
+    let previousActivityId: string | null = null;
 
     if (
       input.changeType === "roadmap_change" &&
@@ -89,25 +126,49 @@ export function governedChangeApplicationService(db: Db) {
       const projectPatch = buildSafeProjectPatch(proposalPayload.projectPatch);
 
       if (hasPatchEntries(projectPatch)) {
-        const project = await db
-          .select({ id: projects.id })
-          .from(projects)
-          .where(and(eq(projects.companyId, companyId), eq(projects.id, input.target.projectId)))
-          .then((rows) => rows[0] ?? null);
-        if (!project) {
-          throw unprocessable("Project target does not belong to this company");
-        }
+        const previousApplicationActivity = await db
+          .select({ id: activityLog.id, details: activityLog.details })
+          .from(activityLog)
+          .where(and(
+            eq(activityLog.companyId, companyId),
+            eq(activityLog.action, "governed_change_application.accepted"),
+            eq(activityLog.entityType, "issue"),
+            eq(activityLog.entityId, issue.id),
+          ))
+          .then((rows) => {
+            return rows.find((row) => detailsMatchApplication(row.details, {
+              approvalId: approval.id,
+              issueId: issue.id,
+              changeType: input.changeType,
+              scope: input.scope ?? null,
+              target: input.target ?? {},
+            })) ?? null;
+          });
 
-        const updatedProject = await db
-          .update(projects)
-          .set({ ...projectPatch, updatedAt: new Date() })
-          .where(and(eq(projects.companyId, companyId), eq(projects.id, input.target.projectId)))
-          .returning({ id: projects.id })
-          .then((rows) => rows[0] ?? null);
+        if (previousApplicationActivity) {
+          alreadyApplied = true;
+          previousActivityId = previousApplicationActivity.id;
+        } else {
+          const project = await db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(eq(projects.companyId, companyId), eq(projects.id, input.target.projectId)))
+            .then((rows) => rows[0] ?? null);
+          if (!project) {
+            throw unprocessable("Project target does not belong to this company");
+          }
 
-        if (updatedProject) {
-          canonicalSideEffects = true;
-          appliedProjectPatch = projectPatch;
+          const updatedProject = await db
+            .update(projects)
+            .set({ ...projectPatch, updatedAt: new Date() })
+            .where(and(eq(projects.companyId, companyId), eq(projects.id, input.target.projectId)))
+            .returning({ id: projects.id })
+            .then((rows) => rows[0] ?? null);
+
+          if (updatedProject) {
+            canonicalSideEffects = true;
+            appliedProjectPatch = projectPatch;
+          }
         }
       }
     }
@@ -129,6 +190,7 @@ export function governedChangeApplicationService(db: Db) {
         target: input.target ?? {},
         dryRun: !canonicalSideEffects,
         canonicalSideEffects,
+        ...(alreadyApplied ? { alreadyApplied, previousActivityId } : {}),
         ...(appliedProjectPatch ? { appliedProjectPatch } : {}),
       },
     });

@@ -227,6 +227,91 @@ describeEmbeddedPostgres("governed change application", () => {
     });
   });
 
+  it("does not reapply an already accepted canonical projectPatch", async () => {
+    const { companyId, projectId, agentId } = await seedCompany();
+    const proposal = await createProposal({ companyId, projectId, agentId });
+    await approvalService(db).approve(proposal.approval.id, "board-user", "approved");
+    const service = governedChangeApplicationService(db);
+    const applicationInput = {
+      issueId: proposal.issue.id,
+      changeType: "roadmap_change" as const,
+      scope: "project" as const,
+      target: { projectId },
+    };
+
+    const firstResult = await service.acceptApprovedApplication(
+      companyId,
+      applicationInput,
+      { actorType: "agent", actorId: agentId, agentId, runId: null },
+    );
+    expect(firstResult.canonicalSideEffects).toBe(true);
+
+    await db
+      .update(projects)
+      .set({
+        name: "Manual operator edit",
+        description: "Changed after first canonical application",
+        status: "planned",
+        targetDate: "2026-09-30",
+        color: "#f59e0b",
+      })
+      .where(eq(projects.id, projectId));
+
+    const secondResult = await service.acceptApprovedApplication(
+      companyId,
+      applicationInput,
+      { actorType: "agent", actorId: agentId, agentId, runId: null },
+    );
+
+    expect(secondResult).toMatchObject({
+      canonicalSideEffects: false,
+      issue: { id: proposal.issue.id },
+      approval: { id: proposal.approval.id, status: "approved" },
+      activity: {
+        action: "governed_change_application.accepted",
+        entityType: "issue",
+        entityId: proposal.issue.id,
+        details: {
+          approvalId: proposal.approval.id,
+          issueId: proposal.issue.id,
+          changeType: "roadmap_change",
+          scope: "project",
+          target: { projectId },
+          alreadyApplied: true,
+          previousActivityId: firstResult.activity.id,
+          dryRun: true,
+          canonicalSideEffects: false,
+        },
+      },
+    });
+    expect(secondResult.activity.details).not.toHaveProperty("appliedProjectPatch");
+
+    const applicationActivities = await findApplicationActivity(companyId);
+    expect(applicationActivities).toHaveLength(2);
+    const duplicateActivity = applicationActivities.find((activity) => {
+      return activity.details?.alreadyApplied === true;
+    });
+    expect(duplicateActivity?.details).toMatchObject({
+      alreadyApplied: true,
+      previousActivityId: firstResult.activity.id,
+      dryRun: true,
+      canonicalSideEffects: false,
+    });
+
+    const storedProject = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .then((rows) => rows[0]);
+    expect(storedProject).toMatchObject({
+      name: "Manual operator edit",
+      description: "Changed after first canonical application",
+      status: "planned",
+      targetDate: "2026-09-30",
+      color: "#f59e0b",
+    });
+  });
+
   it("keeps an approved governed change without supported projectPatch as no-side-effect", async () => {
     const { companyId, projectId, agentId } = await seedCompany();
     const proposal = await createProposal({
